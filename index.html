@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>困兽之斗</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 配置界面 -->
+  <div id="setup-screen" class="screen">
+    <div class="setup-box">
+      <h1>困兽之斗</h1>
+      <p class="subtitle">高草丛中的无声对决</p>
+      <div class="setup-form">
+        <div class="form-group">
+          <label>玩家数量</label>
+          <div class="player-count-selector">
+            <button class="count-btn" data-count="2">2</button>
+            <button class="count-btn" data-count="3">3</button>
+            <button class="count-btn active" data-count="4">4</button>
+            <button class="count-btn" data-count="5">5</button>
+            <button class="count-btn" data-count="6">6</button>
+            <button class="count-btn" data-count="7">7</button>
+            <button class="count-btn" data-count="8">8</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>电脑玩家数量</label>
+          <select id="ai-count-select" class="ai-select">
+            <option value="0">0 人（纯本地多人）</option>
+            <option value="1">1 个电脑</option>
+            <option value="2" selected>2 个电脑</option>
+            <option value="3">3 个电脑</option>
+            <option value="4">4 个电脑</option>
+            <option value="5">5 个电脑</option>
+            <option value="6">6 个电脑</option>
+            <option value="7">7 个电脑</option>
+          </select>
+        </div>
+        <div class="form-group" id="player-names-group">
+          <label>玩家名称</label>
+          <div id="player-names-list"></div>
+        </div>
+        <button id="start-btn" class="primary-btn">开始游戏</button>
+        <div style="text-align:center; margin-top: 16px;">
+          <button id="rules-btn" class="link-btn">游戏规则说明</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 回合切换遮罩 -->
+  <div id="turn-mask" class="screen hidden">
+    <div class="turn-mask-content">
+      <p id="turn-mask-text">请将设备交给下一位玩家</p>
+      <button id="turn-mask-btn">我准备好了</button>
+    </div>
+  </div>
+
+  <!-- 游戏界面 -->
+  <div id="game-screen" class="screen hidden">
+    <div class="game-header">
+      <div class="turn-info">
+        <span id="current-player-label">玩家一</span>
+        <span id="turn-phase">行动阶段</span>
+        <span id="actions-left">剩余行动: 2</span>
+      </div>
+      <div class="header-right">
+        <div class="player-status" id="player-status-bar"></div>
+        <button id="sound-toggle-btn" class="icon-btn" title="音效开关">🔊</button>
+      </div>
+    </div>
+
+    <div class="game-main">
+      <div class="board-container">
+        <div id="board"></div>
+      </div>
+
+      <div class="side-panel">
+        <div class="panel-section">
+          <h3>感知信息</h3>
+          <div id="perception-log" class="log"></div>
+        </div>
+        <div class="panel-section">
+          <h3>行动记录</h3>
+          <div id="action-log" class="log"></div>
+        </div>
+        <div class="panel-section shortcuts-section">
+          <h3>快捷键</h3>
+          <div class="shortcuts-list">
+            <div class="shortcut-item"><kbd>1</kbd> 奔跑</div>
+            <div class="shortcut-item"><kbd>2</kbd> 静步</div>
+            <div class="shortcut-item"><kbd>3</kbd> 攻击</div>
+            <div class="shortcut-item"><kbd>WASD</kbd> 方向</div>
+            <div class="shortcut-item"><kbd>Esc</kbd> 取消</div>
+            <div class="shortcut-item"><kbd>回车</kbd> 确认</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-bar" id="action-bar">
+    </div>
+  </div>
+
+  <!-- 游戏结束 -->
+  <div id="end-screen" class="screen hidden">
+    <div class="end-box">
+      <h1>游戏结束</h1>
+      <p id="winner-text">玩家一 获胜！</p>
+      <button id="restart-btn" class="primary-btn">再来一局</button>
+    </div>
+  </div>
+
+  <!-- 规则说明弹窗 -->
+  <div id="rules-modal" class="screen hidden">
+    <div class="rules-box">
+      <h2>游戏规则</h2>
+      <div class="rules-content">
+        <h4>① 开局设置</h4>
+        <p>每名玩家随机生成在 10×10 的场地内，横坐标为 a-j（西→东），纵坐标为 1-10（南→北）。玩家不知道自己具体位置，也看不到其他玩家，只能通过感知判断方向。</p>
+        
+        <h4>② 回合流程</h4>
+        <p>每个回合分为三个阶段：</p>
+        <p><b>感知阶段</b>（玩家一首回合跳过）：接收听觉和视觉信息</p>
+        <p><b>行动阶段</b>：执行 1~2 次行动（奔跑/静步/攻击）</p>
+        <p><b>结束阶段</b>：选择面朝方向</p>
+        
+        <h4>③ 行动类型</h4>
+        <p><b>🏃 奔跑</b>：移动 2 格，声音传播 3 格，高草丛在移动路径上晃动</p>
+        <p><b>🚶 静步</b>：移动 1 格，声音传播 1 格，高草丛在移动路径上晃动</p>
+        <p><b>⚔️ 攻击</b>：攻击相邻一格，无声音，被攻击格草丛晃动。命中则淘汰对方。</p>
+        
+        <h4>④ 感知系统</h4>
+        <p><b>听觉</b>：在声音传播范围内，会提示方向和声音类型（奔跑/静步/惨叫）</p>
+        <p><b>视觉</b>：面朝方向 2×3 共 6 格视野内，若有草丛晃动会提示（左前方/正前方/右前方）</p>
+        
+        <h4>⑤ 特殊机制</h4>
+        <p><b>相遇</b>：静步进入同一格时，从对方面朝方向进入则对方「提防」成功（自己出局），否则「偷袭」成功（对方出局）</p>
+        <p><b>奔跑碰撞</b>：奔跑途中经过有玩家的格子，奔跑者直接被淘汰</p>
+        <p><b>惨叫</b>：玩家出局时发出惨叫，全图可闻</p>
+        <p><b>墙壁</b>：即将走出地图时提示撞墙，不消耗行动次数</p>
+        
+        <h4>⑥ 胜利条件</h4>
+        <p>淘汰所有其他玩家，成为最后幸存者即获胜。</p>
+      </div>
+      <button id="rules-close-btn" class="primary-btn">明白了</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
