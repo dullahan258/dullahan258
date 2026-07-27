@@ -748,226 +748,442 @@ function dirStrToKeys(dirStr) {
   return keys;
 }
 
-function estimateTargetPositions(aiPlayer, perceptionMsgs) {
-  const estimates = [];
-  for (const msg of perceptionMsgs) {
-    if (msg.type === 'sound') {
-      const dirStr = msg.text.replace('方向发出过奔跑的声音', '')
-        .replace('方向发出过静步的声音', '')
-        .replace('方向发出过惨叫', '');
-      const isRun = msg.text.includes('奔跑');
-      const isScream = msg.text.includes('惨叫');
-      const dirKeys = dirStrToKeys(dirStr);
-      
-      let minDist = 1, maxDist = 10;
-      if (isRun) { minDist = 1; maxDist = 3; }
-      else if (!isScream) { minDist = 1; maxDist = 1; }
-      
-      for (let dx = -maxDist; dx <= maxDist; dx++) {
-        for (let dy = -maxDist; dy <= maxDist; dy++) {
-          const dist = Math.max(Math.abs(dx), Math.abs(dy));
-          if (dist < minDist || dist > maxDist) continue;
-          
-          let matchDir = true;
-          if (dirKeys.includes('N') && dy <= 0) matchDir = false;
-          if (dirKeys.includes('S') && dy >= 0) matchDir = false;
-          if (dirKeys.includes('E') && dx <= 0) matchDir = false;
-          if (dirKeys.includes('W') && dx >= 0) matchDir = false;
-          
-          if (dirKeys.length === 2) {
-            const absDx = Math.abs(dx), absDy = Math.abs(dy);
-            if (absDx < Math.floor(dist / 2) || absDy < Math.floor(dist / 2)) {
-              matchDir = false;
-            }
-          }
-          
-          if (matchDir) {
-            const ex = aiPlayer.x + dx;
-            const ey = aiPlayer.y + dy;
-            if (inBounds(ex, ey)) {
-              estimates.push({
-                x: ex, y: ey,
-                weight: isScream ? 1.5 : (isRun ? 1.0 : 0.8),
-                type: isScream ? 'scream' : 'sound',
-              });
-            }
-          }
-        }
-      }
+function createBeliefMap() {
+  const map = [];
+  for (let y = 0; y < 10; y++) {
+    map[y] = [];
+    for (let x = 0; x < 10; x++) {
+      map[y][x] = 0;
     }
   }
-  return estimates;
+  return map;
 }
 
-function aiMakeDecision(aiPlayer, perceptionMsgs) {
-  const decisions = [];
-  const dirKeys = ['N', 'E', 'S', 'W'];
-  
-  const estimates = estimateTargetPositions(aiPlayer, perceptionMsgs);
-  
-  let bestTarget = null;
-  let bestWeight = 0;
-  const cellWeights = {};
-  for (const est of estimates) {
-    const key = `${est.x},${est.y}`;
-    cellWeights[key] = (cellWeights[key] || 0) + est.weight;
-    if (cellWeights[key] > bestWeight) {
-      bestWeight = cellWeights[key];
-      bestTarget = { x: est.x, y: est.y };
+function cloneBeliefMap(map) {
+  return map.map(row => row.slice());
+}
+
+function decayBeliefs(map, factor) {
+  for (let y = 0; y < 10; y++) {
+    for (let x = 0; x < 10; x++) {
+      map[y][x] *= factor;
+      if (map[y][x] < 0.01) map[y][x] = 0;
     }
   }
-  
-  for (let actionIdx = 0; actionIdx < 2; actionIdx++) {
-    let bestAction = null;
-    let bestScore = -Infinity;
-    
-    for (const actionType of ['run', 'walk', 'attack']) {
-      for (const dir of dirKeys) {
-        const d = DIRS[dir];
-        let score = 0;
-        let valid = true;
-        let newX = aiPlayer.x;
-        let newY = aiPlayer.y;
-        
-        if (actionType === 'run') {
-          newX = aiPlayer.x + d.dx * 2;
-          newY = aiPlayer.y + d.dy * 2;
-          if (!inBounds(newX, newY)) { valid = false; }
-          score -= 5;
-        } else if (actionType === 'walk') {
-          newX = aiPlayer.x + d.dx;
-          newY = aiPlayer.y + d.dy;
-          if (!inBounds(newX, newY)) { valid = false; }
-          score -= 2;
-        } else if (actionType === 'attack') {
-          const tx = aiPlayer.x + d.dx;
-          const ty = aiPlayer.y + d.dy;
-          if (!inBounds(tx, ty)) { valid = false; }
-          const tkey = `${tx},${ty}`;
-          if (cellWeights[tkey]) {
-            score += cellWeights[tkey] * 20;
-          }
-          score -= 3;
-        }
-        
-        if (!valid) continue;
-        
-        if (actionType !== 'attack' && bestTarget) {
-          const oldDist = Math.abs(aiPlayer.x - bestTarget.x) + Math.abs(aiPlayer.y - bestTarget.y);
-          const newDist = Math.abs(newX - bestTarget.x) + Math.abs(newY - bestTarget.y);
-          if (newDist < oldDist) {
-            score += (oldDist - newDist) * 3;
-          } else {
-            score -= (newDist - oldDist) * 2;
-          }
-        }
-        
-        if (actionType === 'run') {
-          const midX = aiPlayer.x + d.dx;
-          const midY = aiPlayer.y + d.dy;
-          const mkey = `${midX},${midY}`;
-          if (cellWeights[mkey]) {
-            score -= cellWeights[mkey] * 50;
-          }
-          const ekey = `${newX},${newY}`;
-          if (cellWeights[ekey]) {
-            score -= cellWeights[ekey] * 50;
-          }
-        }
-        
-        if (actionType === 'walk') {
-          const ekey = `${newX},${newY}`;
-          if (cellWeights[ekey]) {
-            score += cellWeights[ekey] * 10;
-          }
-        }
-        
-        score += Math.random() * 2;
-        
-        if (score > bestScore) {
-          bestScore = score;
-          bestAction = { type: actionType, direction: dir };
-        }
-      }
-    }
-    
-    if (bestAction) {
-      decisions.push(bestAction);
+}
+
+function addBeliefArea(map, cx, cy, radius, value, shape) {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (!inBounds(x, y)) continue;
       
-      if (bestAction.type === 'run') {
-        const d = DIRS[bestAction.direction];
-        aiPlayer.x += d.dx * 2;
-        aiPlayer.y += d.dy * 2;
-      } else if (bestAction.type === 'walk') {
-        const d = DIRS[bestAction.direction];
-        aiPlayer.x += d.dx;
-        aiPlayer.y += d.dy;
+      if (shape === 'chebyshev') {
+        const dist = Math.max(Math.abs(dx), Math.abs(dy));
+        if (dist <= radius && dist > 0) {
+          map[y][x] += value * (1 - dist / (radius + 1));
+        }
+      } else if (shape === 'cone') {
+        map[y][x] += value;
+      }
+    }
+  }
+}
+
+function getDirectionRange(dirKeys) {
+  const ranges = { minDx: -10, maxDx: 10, minDy: -10, maxDy: 10 };
+  if (dirKeys.includes('N')) { ranges.minDy = 1; }
+  if (dirKeys.includes('S')) { ranges.maxDy = -1; }
+  if (dirKeys.includes('E')) { ranges.minDx = 1; }
+  if (dirKeys.includes('W')) { ranges.maxDx = -1; }
+  return ranges;
+}
+
+function updateBeliefsFromSound(beliefMap, aiX, aiY, msg) {
+  let soundType = 'unknown';
+  let radius = 10;
+  let minDist = 1;
+  
+  if (msg.text.includes('奔跑')) {
+    soundType = 'run';
+    radius = 3;
+    minDist = 1;
+  } else if (msg.text.includes('静步')) {
+    soundType = 'walk';
+    radius = 1;
+    minDist = 1;
+  } else if (msg.text.includes('惨叫')) {
+    soundType = 'scream';
+    radius = 10;
+    minDist = 1;
+  }
+  
+  const dirStr = msg.text.replace('方向发出过奔跑的声音', '')
+    .replace('方向发出过静步的声音', '')
+    .replace('方向发出过惨叫', '');
+  const dirKeys = dirStrToKeys(dirStr);
+  const range = getDirectionRange(dirKeys);
+  
+  let value = soundType === 'scream' ? 3.0 : (soundType === 'run' ? 1.5 : 0.8);
+  
+  for (let dy = -10; dy <= 10; dy++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const x = aiX + dx;
+      const y = aiY + dy;
+      if (!inBounds(x, y)) continue;
+      
+      const dist = Math.max(Math.abs(dx), Math.abs(dy));
+      if (dist < minDist || dist > radius) continue;
+      
+      if (dx < range.minDx || dx > range.maxDx) continue;
+      if (dy < range.minDy || dy > range.maxDy) continue;
+      
+      if (dirKeys.length === 2) {
+        const absDx = Math.abs(dx), absDy = Math.abs(dy);
+        if (absDx < Math.floor(dist / 2) || absDy < Math.floor(dist / 2)) continue;
+      }
+      
+      const falloff = 1 - (dist - 1) / radius;
+      beliefMap[y][x] += value * Math.max(0.2, falloff);
+    }
+  }
+}
+
+function updateBeliefsFromVision(beliefMap, aiPlayer, msg) {
+  const zoneName = msg.text.replace('自身', '').replace('有过高草丛在动', '');
+  
+  const vision = getVisionCells(aiPlayer);
+  let cellList = [];
+  if (zoneName === '左前方') cellList = vision.leftFront;
+  else if (zoneName === '正前方') cellList = vision.front;
+  else if (zoneName === '右前方') cellList = vision.rightFront;
+  
+  for (const cell of cellList) {
+    if (inBounds(cell.x, cell.y)) {
+      beliefMap[cell.y][cell.x] += 2.0;
+    }
+  }
+}
+
+function aiGetVisionCellsList(player) {
+  const vision = getVisionCells(player);
+  const list = [];
+  for (const c of vision.leftFront) list.push({ ...c, zone: '左前方' });
+  for (const c of vision.front) list.push({ ...c, zone: '正前方' });
+  for (const c of vision.rightFront) list.push({ ...c, zone: '右前方' });
+  return list;
+}
+
+function dirToChinese(dir) {
+  const map = { N: '北', S: '南', E: '东', W: '西' };
+  return map[dir] || dir;
+}
+
+function findHighestBeliefCell(beliefMap, excludeX, excludeY) {
+  let bestX = -1, bestY = -1, bestVal = 0;
+  for (let y = 0; y < 10; y++) {
+    for (let x = 0; x < 10; x++) {
+      if (x === excludeX && y === excludeY) continue;
+      if (beliefMap[y][x] > bestVal) {
+        bestVal = beliefMap[y][x];
+        bestX = x;
+        bestY = y;
+      }
+    }
+  }
+  return { x: bestX, y: bestY, value: bestVal };
+}
+
+function getTotalBelief(beliefMap) {
+  let total = 0;
+  for (let y = 0; y < 10; y++) {
+    for (let x = 0; x < 10; x++) {
+      total += beliefMap[y][x];
+    }
+  }
+  return total;
+}
+
+function simulateMove(x, y, dir, dist) {
+  const d = DIRS[dir];
+  return { x: x + d.dx * dist, y: y + d.dy * dist };
+}
+
+function manhattanDist(x1, y1, x2, y2) {
+  return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+}
+
+function evaluateActionRisk(actionType, dir, x, y, beliefMap) {
+  const d = DIRS[dir];
+  let risk = 0;
+  
+  if (actionType === 'run') {
+    const midX = x + d.dx;
+    const midY = y + d.dy;
+    const endX = x + d.dx * 2;
+    const endY = y + d.dy * 2;
+    
+    if (inBounds(midX, midY)) {
+      risk += beliefMap[midY][midX] * 50;
+    }
+    if (inBounds(endX, endY)) {
+      risk += beliefMap[endY][endX] * 30;
+    }
+  } else if (actionType === 'walk') {
+    const endX = x + d.dx;
+    const endY = y + d.dy;
+    if (inBounds(endX, endY)) {
+      risk += beliefMap[endY][endX] * 15;
+    }
+  } else if (actionType === 'attack') {
+    risk += 5;
+  }
+  
+  return risk;
+}
+
+function evaluateActionReward(actionType, dir, x, y, beliefMap, targetX, targetY) {
+  let reward = 0;
+  const d = DIRS[dir];
+  
+  if (actionType === 'attack') {
+    const tx = x + d.dx;
+    const ty = y + d.dy;
+    if (inBounds(tx, ty)) {
+      const belief = beliefMap[ty][tx];
+      const unknownPrior = (game.players.filter(p => p.alive).length - 1) / 99;
+      if (belief > unknownPrior * 5) {
+        reward += belief * 80;
+      }
+    }
+    reward -= 8;
+  } else {
+    let newX, newY;
+    if (actionType === 'run') {
+      newX = x + d.dx * 2;
+      newY = y + d.dy * 2;
+      reward -= 5;
+    } else {
+      newX = x + d.dx;
+      newY = y + d.dy;
+      reward -= 2;
+    }
+    
+    if (!inBounds(newX, newY)) return -Infinity;
+    
+    if (targetX >= 0 && targetY >= 0) {
+      const oldDist = manhattanDist(x, y, targetX, targetY);
+      const newDist = manhattanDist(newX, newY, targetX, targetY);
+      if (newDist < oldDist) {
+        reward += (oldDist - newDist) * 4;
+      } else {
+        reward -= (newDist - oldDist) * 2;
       }
     }
   }
   
-  const tempX = aiPlayer.x;
-  const tempY = aiPlayer.y;
+  return reward;
+}
+
+function buildAIBeliefMap(aiPlayer, perceptionMsgs) {
+  const beliefMap = createBeliefMap();
+  const totalPlayersAlive = game.players.filter(p => p.alive).length;
+  const unknownPrior = (totalPlayersAlive - 1) / 99;
+  
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (x !== aiPlayer.x || y !== aiPlayer.y) {
+        beliefMap[y][x] = unknownPrior;
+      }
+    }
+  }
+  
+  for (const msg of perceptionMsgs) {
+    if (msg.type === 'sound') {
+      updateBeliefsFromSound(beliefMap, aiPlayer.x, aiPlayer.y, msg);
+    } else if (msg.type === 'vision') {
+      updateBeliefsFromVision(beliefMap, aiPlayer, msg);
+    }
+  }
+  
+  return beliefMap;
+}
+
+function aiChooseAction(aiPlayer, perceptionMsgs) {
+  const dirKeys = ['N', 'E', 'S', 'W'];
+  const beliefMap = buildAIBeliefMap(aiPlayer, perceptionMsgs);
+  
+  const best = findHighestBeliefCell(beliefMap, aiPlayer.x, aiPlayer.y);
+  const unknownPrior = (game.players.filter(p => p.alive).length - 1) / 99;
+  const hasTarget = best.value > unknownPrior * 3;
+  const targetX = hasTarget ? best.x : -1;
+  const targetY = hasTarget ? best.y : -1;
+  
+  const aggression = 0.5 + Math.random() * 0.5;
+  
+  let bestAction = null;
+  let bestScore = -Infinity;
+  
+  for (const actionType of ['run', 'walk', 'attack']) {
+    for (const dir of dirKeys) {
+      const d = DIRS[dir];
+      let valid = true;
+      let newX = aiPlayer.x;
+      let newY = aiPlayer.y;
+      
+      if (actionType === 'run') {
+        newX = aiPlayer.x + d.dx * 2;
+        newY = aiPlayer.y + d.dy * 2;
+        if (!inBounds(newX, newY)) valid = false;
+      } else if (actionType === 'walk') {
+        newX = aiPlayer.x + d.dx;
+        newY = aiPlayer.y + d.dy;
+        if (!inBounds(newX, newY)) valid = false;
+      } else if (actionType === 'attack') {
+        const tx = aiPlayer.x + d.dx;
+        const ty = aiPlayer.y + d.dy;
+        if (!inBounds(tx, ty)) valid = false;
+        if (valid) {
+          const belief = beliefMap[ty][tx];
+          if (belief < unknownPrior * 5 && !hasTarget) {
+            valid = false;
+          }
+        }
+      }
+      
+      if (!valid) continue;
+      
+      const risk = evaluateActionRisk(actionType, dir, aiPlayer.x, aiPlayer.y, beliefMap);
+      const reward = evaluateActionReward(actionType, dir, aiPlayer.x, aiPlayer.y, beliefMap, targetX, targetY);
+      
+      let score = reward - risk * (1 - aggression);
+      
+      if (actionType === 'attack' && hasTarget) {
+        const tx = aiPlayer.x + d.dx;
+        const ty = aiPlayer.y + d.dy;
+        if (chebyshevDist(tx, ty, targetX, targetY) === 0) {
+          score += 100;
+        }
+      }
+      
+      if (hasTarget && actionType !== 'attack') {
+        const distAfter = chebyshevDist(newX, newY, targetX, targetY);
+        const distBefore = chebyshevDist(aiPlayer.x, aiPlayer.y, targetX, targetY);
+        if (distAfter < distBefore) {
+          score += (distBefore - distAfter) * 5;
+        }
+        if (distAfter === 1 && actionType === 'walk') {
+          score += 10;
+        }
+      }
+      
+      score += Math.random() * 2;
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestAction = { type: actionType, direction: dir };
+      }
+    }
+  }
+  
+  if (!bestAction || bestScore < -15) {
+    const validDirs = dirKeys.filter(d => inBounds(aiPlayer.x + DIRS[d].dx, aiPlayer.y + DIRS[d].dy));
+    if (validDirs.length > 0) {
+      const randomDir = validDirs[Math.floor(Math.random() * validDirs.length)];
+      bestAction = { type: 'walk', direction: randomDir };
+    }
+  }
+  
+  return bestAction;
+}
+
+function aiChooseFacing(aiPlayer, perceptionMsgs) {
+  const dirKeys = ['N', 'E', 'S', 'W'];
+  const beliefMap = buildAIBeliefMap(aiPlayer, perceptionMsgs);
+  
+  const best = findHighestBeliefCell(beliefMap, aiPlayer.x, aiPlayer.y);
+  const unknownPrior = (game.players.filter(p => p.alive).length - 1) / 99;
+  const hasTarget = best.value > unknownPrior * 3;
+  const targetX = hasTarget ? best.x : -1;
+  const targetY = hasTarget ? best.y : -1;
   
   let bestFaceDir = aiPlayer.facing;
   let bestFaceScore = -Infinity;
+  
   for (const dir of dirKeys) {
     let score = 0;
-    aiPlayer.facing = dir;
-    for (const est of estimates) {
-      if (isInVision(aiPlayer, est.x, est.y)) {
-        score += est.weight * 5;
+    const tempPlayer = { x: aiPlayer.x, y: aiPlayer.y, facing: dir };
+    const visionCells = aiGetVisionCellsList(tempPlayer);
+    
+    for (const cell of visionCells) {
+      if (inBounds(cell.x, cell.y)) {
+        score += beliefMap[cell.y][cell.x] * 10;
       }
     }
-    score += Math.random();
+    
+    if (hasTarget) {
+      const targetDir = getDirectionFromTo(aiPlayer.x, aiPlayer.y, targetX, targetY);
+      const dirChinese = dirToChinese(dir);
+      if (targetDir === dirChinese) {
+        score += 15;
+      }
+    }
+    
+    score += Math.random() * 2;
+    
     if (score > bestFaceScore) {
       bestFaceScore = score;
       bestFaceDir = dir;
     }
   }
   
-  aiPlayer.x = tempX;
-  aiPlayer.y = tempY;
-  aiPlayer.facing = bestFaceDir;
-  
-  decisions.push({ type: 'face', direction: bestFaceDir });
-  
-  return decisions;
+  return bestFaceDir;
 }
 
 function executeAITurn() {
   const aiPlayer = getCurrentPlayer();
   if (!aiPlayer.isAI || !aiPlayer.alive) return;
   
+  if (game.phase === 'action') {
+    executeAIAction();
+  } else if (game.phase === 'ending') {
+    executeAIEnding();
+  }
+}
+
+function executeAIAction() {
+  const aiPlayer = getCurrentPlayer();
+  if (!aiPlayer.isAI || !aiPlayer.alive) return;
+  if (game.phase !== 'action') return;
+  if (game.actionCount <= 0) {
+    enterEndingPhase();
+    setTimeout(executeAIEnding, 600);
+    return;
+  }
+  
   const perceptionMsgs = game.pendingMessages[aiPlayer.id] || [];
-  const decisions = aiMakeDecision(aiPlayer, perceptionMsgs);
+  const action = aiChooseAction(aiPlayer, perceptionMsgs);
   
-  let actionIdx = 0;
-  const totalActions = decisions.filter(d => d.type !== 'face').length;
-  game.actionCount = Math.max(1, Math.min(2, totalActions));
+  if (!action) {
+    enterEndingPhase();
+    setTimeout(executeAIEnding, 600);
+    return;
+  }
   
-  function executeNextAction() {
-    if (game.phase === 'gameOver') return;
-    
-    const decision = decisions[actionIdx];
-    
-    if (!decision || decision.type === 'face') {
-      const faceDir = decision ? decision.direction : aiPlayer.facing;
-      endTurn(faceDir);
-      return;
-    }
-    
-    let success = false;
-    if (decision.type === 'run') success = doRun(decision.direction);
-    else if (decision.type === 'walk') success = doWalk(decision.direction);
-    else if (decision.type === 'attack') success = doAttack(decision.direction);
-    
-    if (success) {
-      game.actionCount--;
-      updateAll();
-    }
-    
-    actionIdx++;
+  let success = false;
+  if (action.type === 'run') success = doRun(action.direction);
+  else if (action.type === 'walk') success = doWalk(action.direction);
+  else if (action.type === 'attack') success = doAttack(action.direction);
+  
+  if (game.phase === 'gameOver') {
+    showEndScreen();
+    return;
+  }
+  
+  if (success) {
+    game.actionCount--;
+    updateAll();
     
     if (game.phase === 'gameOver') {
       showEndScreen();
@@ -976,16 +1192,27 @@ function executeAITurn() {
     
     if (game.actionCount <= 0) {
       setTimeout(() => {
-        const lastDecision = decisions[decisions.length - 1];
-        const faceDir = lastDecision && lastDecision.type === 'face' ? lastDecision.direction : aiPlayer.facing;
-        endTurn(faceDir);
-      }, 600);
+        enterEndingPhase();
+        setTimeout(executeAIEnding, 600);
+      }, 500);
     } else {
-      setTimeout(executeNextAction, 800);
+      game.selectedAction = null;
+      setTimeout(executeAIAction, 800);
     }
+  } else {
+    setTimeout(executeAIAction, 600);
   }
+}
+
+function executeAIEnding() {
+  const aiPlayer = getCurrentPlayer();
+  if (!aiPlayer.isAI || !aiPlayer.alive) return;
+  if (game.phase !== 'ending') return;
   
-  setTimeout(executeNextAction, 600);
+  const perceptionMsgs = game.pendingMessages[aiPlayer.id] || [];
+  const facingDir = aiChooseFacing(aiPlayer, perceptionMsgs);
+  
+  endTurn(facingDir);
 }
 
 function showWallHit() {
@@ -1567,8 +1794,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rules-btn').addEventListener('click', () => {
     document.getElementById('rules-modal').classList.remove('hidden');
   });
+  const rulesBtnGame = document.getElementById('rules-btn-game');
+  if (rulesBtnGame) {
+    rulesBtnGame.addEventListener('click', () => {
+      document.getElementById('rules-modal').classList.remove('hidden');
+    });
+  }
   document.getElementById('rules-close-btn').addEventListener('click', () => {
     document.getElementById('rules-modal').classList.add('hidden');
+  });
+  
+  document.getElementById('rules-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'rules-modal') {
+      document.getElementById('rules-modal').classList.add('hidden');
+    }
   });
   
   const soundBtn = document.getElementById('sound-toggle-btn');
