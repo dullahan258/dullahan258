@@ -3170,6 +3170,84 @@ function getSelectedCharacters() {
   return characterIds;
 }
 
+/**
+ * 显示联机大厅选中角色的背景故事和技能详情
+ */
+function showLobbyCharacterInfo(slotIdx, charId) {
+  const panel = document.getElementById(`lobby-char-info-${slotIdx}`);
+  if (!panel) return;
+
+  if (!charId) {
+    panel.innerHTML = '';
+    panel.classList.remove('active');
+    return;
+  }
+
+  const char = CHARACTERS.find(c => c.id === charId);
+  if (!char) {
+    panel.innerHTML = '';
+    panel.classList.remove('active');
+    return;
+  }
+
+  panel.classList.add('active');
+  panel.innerHTML = `
+    <div class="char-info-header">
+      <span class="char-info-icon">${char.icon}</span>
+      <div class="char-info-title">
+        <span class="char-info-name">${char.title}—${char.name}</span>
+      </div>
+    </div>
+    <div class="char-info-background">
+      <span class="char-info-label">📖 背景故事</span>
+      <p>${char.background}</p>
+    </div>
+    <div class="char-info-skill">
+      <span class="char-info-label">⚡ 技能：${char.skillName}</span>
+      <p>${char.skillDesc}</p>
+    </div>
+  `;
+}
+
+/**
+ * 更新联机大厅角色选择选项，避免重复选择
+ */
+function updateLobbyCharacterOptions() {
+  const selects = document.querySelectorAll('#lobby-player-list .char-select');
+  const selected = {};
+  selects.forEach(s => {
+    if (s.value && !s.disabled) {
+      selected[s.dataset.lobbyIdx] = s.value;
+    }
+  });
+
+  selects.forEach(s => {
+    if (s.disabled) return;
+    Array.from(s.options).forEach(opt => {
+      if (!opt.value) return;
+      const isSelectedByOther = Object.values(selected).includes(opt.value) && selected[s.dataset.lobbyIdx] !== opt.value;
+      opt.disabled = isSelectedByOther;
+      opt.style.color = isSelectedByOther ? '#555' : '';
+    });
+  });
+}
+
+/**
+ * 获取联机大厅已选择的角色ID数组（按slot顺序）
+ */
+function getLobbySelectedCharacters() {
+  const totalSlots = parseInt(document.querySelector('#lobby-player-count .count-btn.active')?.dataset.count || 4);
+  const characterIds = new Array(totalSlots).fill(null);
+  const selects = document.querySelectorAll('#lobby-player-list .char-select');
+  selects.forEach(s => {
+    const idx = parseInt(s.dataset.lobbyIdx);
+    if (!isNaN(idx) && idx < totalSlots) {
+      characterIds[idx] = s.value || null;
+    }
+  });
+  return characterIds;
+}
+
 function getPlayerNames() {
   const inputs = document.querySelectorAll('#player-names-list input');
   const names = [];
@@ -3565,44 +3643,144 @@ function renderLobbyPlayerList() {
   const aiCount = parseInt(document.getElementById('lobby-ai-count').value || 0);
   const humanSlots = totalSlots - aiCount;
 
-  // 主机
+  const showChars = isLobbySpecialCharsEnabled();
+  let slotIdx = 0;
+
+  // 主机（slot 0）
   const hostName = document.getElementById('online-name-input')?.value || '主机';
-  const hostItem = createLobbyPlayerItem(hostName, PLAYER_COLORS[0], '主机', true);
+  const hostItem = createLobbyPlayerItem(hostName, PLAYER_COLORS[0], '主机', true, slotIdx, showChars, false);
   list.appendChild(hostItem);
+  slotIdx++;
 
   // 客机
   const guests = Object.values(Net.guests);
   guests.forEach((g, i) => {
-    const item = createLobbyPlayerItem(g.name, PLAYER_COLORS[i + 1], '', false);
-    list.appendChild(item);
+    if (slotIdx < humanSlots) {
+      const item = createLobbyPlayerItem(g.name, PLAYER_COLORS[slotIdx], '', false, slotIdx, showChars, true);
+      list.appendChild(item);
+      slotIdx++;
+    }
   });
 
   // 空位
   const filledHumans = 1 + guests.length;
   for (let i = filledHumans; i < humanSlots; i++) {
+    if (slotIdx >= totalSlots) break;
     const empty = document.createElement('div');
     empty.className = 'lobby-player-item';
     empty.style.opacity = '0.4';
     empty.innerHTML = `<span class="player-color" style="background:#333"></span><span>等待加入...</span>`;
     list.appendChild(empty);
+    slotIdx++;
   }
 
   // AI
   for (let i = 0; i < aiCount; i++) {
-    const item = createLobbyPlayerItem(`电脑${PLAYER_NAMES_CN[i]}`, PLAYER_COLORS[humanSlots + i], 'AI', false);
+    if (slotIdx >= totalSlots) break;
+    const item = createLobbyPlayerItem(`电脑${PLAYER_NAMES_CN[i]}`, PLAYER_COLORS[slotIdx], 'AI', false, slotIdx, showChars, false, true);
     list.appendChild(item);
+    slotIdx++;
+  }
+
+  // 渲染后更新角色重复禁用
+  if (showChars) {
+    updateLobbyCharacterOptions();
   }
 }
 
-function createLobbyPlayerItem(name, color, tag, isHost) {
-  const div = document.createElement('div');
-  div.className = 'lobby-player-item';
-  let tagHtml = '';
+function createLobbyPlayerItem(name, color, tag, isHost, slotIdx, showChars, isGuest, isAI) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'name-input-wrapper';
+
+  const row = document.createElement('div');
+  row.className = 'name-input-row';
+  row.style.padding = '6px 8px';
+  row.style.background = 'rgba(15,22,38,0.6)';
+  row.style.borderRadius = '8px';
+  row.style.border = '1px solid rgba(15,52,96,0.5)';
+
+  const dot = document.createElement('span');
+  dot.className = 'color-dot';
+  dot.style.background = color;
+  row.appendChild(dot);
+
+  // 客机不显示名称输入框，直接显示名称
+  const textSpan = document.createElement('span');
+  textSpan.textContent = name;
+  textSpan.style.flex = '1';
+  textSpan.style.fontSize = '13px';
+  textSpan.style.color = '#e0e0e0';
+  textSpan.style.padding = '4px 6px';
+  if (isAI) textSpan.style.opacity = '0.7';
+  row.appendChild(textSpan);
+
+  // 标签
   if (tag) {
-    tagHtml = `<span class="player-tag ${isHost ? 'host-tag' : ''}">${tag}</span>`;
+    const tagSpan = document.createElement('span');
+    tagSpan.className = `player-tag ${isHost ? 'host-tag' : ''}`;
+    tagSpan.textContent = tag;
+    tagSpan.style.fontSize = '11px';
+    tagSpan.style.padding = '2px 8px';
+    tagSpan.style.borderRadius = '10px';
+    if (!isHost) {
+      tagSpan.style.background = 'rgba(108,117,125,0.4)';
+      tagSpan.style.color = '#a8b2d1';
+    } else {
+      tagSpan.style.background = 'rgba(233,69,96,0.2)';
+      tagSpan.style.color = '#e94560';
+      tagSpan.style.fontWeight = 'bold';
+    }
+    row.appendChild(tagSpan);
   }
-  div.innerHTML = `<span class="player-color" style="background:${color}"></span><span>${name}</span>${tagHtml}`;
-  return div;
+
+  // 角色选择下拉框（启用特殊角色时显示）
+  if (showChars) {
+    const charSelect = document.createElement('select');
+    charSelect.className = 'char-select';
+    charSelect.dataset.lobbyIdx = slotIdx;
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '随机角色';
+    charSelect.appendChild(defaultOpt);
+
+    CHARACTERS.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.icon} ${c.title}—${c.name}`;
+      charSelect.appendChild(opt);
+    });
+
+    // 客机和AI：无法选择（客机的角色由客机客户端自己选，AI随机）
+    if (isGuest || isAI) {
+      charSelect.disabled = true;
+      charSelect.style.opacity = '0.5';
+      if (isGuest) {
+        charSelect.title = '客机角色由客机玩家自行选择';
+      } else if (isAI) {
+        charSelect.title = 'AI玩家角色随机分配';
+      }
+    } else {
+      charSelect.addEventListener('change', () => {
+        updateLobbyCharacterOptions();
+        showLobbyCharacterInfo(slotIdx, charSelect.value);
+      });
+    }
+    row.appendChild(charSelect);
+  }
+
+  wrapper.appendChild(row);
+
+  // 角色详情面板
+  if (showChars) {
+    const infoPanel = document.createElement('div');
+    infoPanel.className = 'char-info-panel';
+    infoPanel.id = `lobby-char-info-${slotIdx}`;
+    infoPanel.style.marginTop = '2px';
+    wrapper.appendChild(infoPanel);
+  }
+
+  return wrapper;
 }
 
 function updateWaitingPlayerList(players) {
@@ -3746,11 +3924,12 @@ function startOnlineGame() {
   // 初始化游戏
   game.gameMode = 'online-host';
   game.myPlayerIdx = 0;
-  // 联机模式下根据主机设置决定是否启用特殊角色（启用时随机分配）
+  // 联机模式下根据主机设置决定是否启用特殊角色
   const fireCircleConfig = getLobbyFireCircleConfig();
   const enableSpecialChars = isLobbySpecialCharsEnabled();
   const terrainCounts = getLobbyTerrainCounts();
-  initGame(names, aiCount, null, fireCircleConfig, enableSpecialChars, terrainCounts);
+  const lobbyCharacterIds = enableSpecialChars ? getLobbySelectedCharacters() : null;
+  initGame(names, aiCount, lobbyCharacterIds, fireCircleConfig, enableSpecialChars, terrainCounts);
 
   // 通知客机游戏开始
   Net.broadcast({ type: 'gameStart', myPlayerIdx: -1 });
@@ -3867,6 +4046,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   document.getElementById('lobby-ai-count').addEventListener('change', renderLobbyPlayerList);
+
+  // 联机大厅：特殊角色开关切换时重新渲染玩家列表
+  const lobbySpecialCharsToggle = document.getElementById('lobby-special-chars-enabled');
+  if (lobbySpecialCharsToggle) {
+    lobbySpecialCharsToggle.addEventListener('change', () => {
+      renderLobbyPlayerList();
+    });
+  }
 
   // 规则按钮
   document.getElementById('rules-btn').addEventListener('click', () => {
