@@ -629,13 +629,20 @@ function initGame(playerNames, aiCount, characterIds, fireCircleConfig, enableSp
     let characterIcon = '';
 
     if (enableSpecialChars) {
-      const hasValidCharId = characterIds && characterIds[i];
-      if (hasValidCharId) {
-        characterId = characterIds[i];
+      // 跟踪已实际分配的角色ID，防止重复
+      const assignedIds = new Set();
+      for (let j = 0; j < i; j++) {
+        if (game.players[j] && game.players[j].characterId) {
+          assignedIds.add(game.players[j].characterId);
+        }
+      }
+
+      const requestedId = characterIds && characterIds[i];
+      // 如果请求的角色ID未被前面的玩家占用，则使用；否则从剩余角色中随机选择
+      if (requestedId && !assignedIds.has(requestedId)) {
+        characterId = requestedId;
       } else {
-        // AI或未指定时从剩余角色中随机选择
-        const usedIds = (characterIds || []).filter(c => c);
-        const availableChars = CHARACTERS.filter(c => !usedIds.includes(c.id));
+        const availableChars = CHARACTERS.filter(c => !assignedIds.has(c.id));
         characterId = availableChars.length > 0
           ? availableChars[Math.floor(Math.random() * availableChars.length)].id
           : CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)].id;
@@ -3149,6 +3156,15 @@ function updateCharacterOptions() {
   selects.forEach(s => {
     if (s.disabled) return;
     const currentVal = s.value;
+    // 如果当前选中的角色已被其他玩家占用，自动重置为随机
+    if (currentVal) {
+      const ownerIdx = Object.keys(selected).find(k => selected[k] === currentVal);
+      if (ownerIdx !== undefined && ownerIdx !== s.dataset.idx) {
+        s.value = '';
+        showCharacterInfo(s.dataset.idx, '');
+        delete selected[s.dataset.idx];
+      }
+    }
     Array.from(s.options).forEach(opt => {
       if (!opt.value) return; // 跳过"随机角色"
       const isSelectedByOther = Object.values(selected).includes(opt.value) && selected[s.dataset.idx] !== opt.value;
@@ -3223,6 +3239,16 @@ function updateLobbyCharacterOptions() {
 
   selects.forEach(s => {
     if (s.disabled) return;
+    const currentVal = s.value;
+    // 如果当前选中的角色已被其他玩家占用，自动重置为随机
+    if (currentVal) {
+      const ownerIdx = Object.keys(selected).find(k => selected[k] === currentVal);
+      if (ownerIdx !== undefined && ownerIdx !== s.dataset.lobbyIdx) {
+        s.value = '';
+        showLobbyCharacterInfo(s.dataset.lobbyIdx, '');
+        delete selected[s.dataset.lobbyIdx];
+      }
+    }
     Array.from(s.options).forEach(opt => {
       if (!opt.value) return;
       const isSelectedByOther = Object.values(selected).includes(opt.value) && selected[s.dataset.lobbyIdx] !== opt.value;
@@ -3940,6 +3966,7 @@ function startOnlineGame() {
   // 切换到游戏界面
   document.getElementById('lobby-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
+
   updateAll();
 
   // 广播初始状态
