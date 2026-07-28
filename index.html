@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>困兽之斗</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=12">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -29,10 +29,6 @@
             <button class="count-btn" data-count="2">2</button>
             <button class="count-btn" data-count="3">3</button>
             <button class="count-btn active" data-count="4">4</button>
-            <button class="count-btn" data-count="5">5</button>
-            <button class="count-btn" data-count="6">6</button>
-            <button class="count-btn" data-count="7">7</button>
-            <button class="count-btn" data-count="8">8</button>
           </div>
         </div>
         <div class="form-group">
@@ -42,11 +38,72 @@
             <option value="1">1 个电脑</option>
             <option value="2" selected>2 个电脑</option>
             <option value="3">3 个电脑</option>
-            <option value="4">4 个电脑</option>
-            <option value="5">5 个电脑</option>
-            <option value="6">6 个电脑</option>
-            <option value="7">7 个电脑</option>
           </select>
+        </div>
+        <div class="settings-panel">
+          <button type="button" class="settings-toggle" data-target="local-settings-panel">
+            <span>⚙️ 设置（特殊角色 / 火圈 / 地形）</span>
+            <span class="settings-arrow">▾</span>
+          </button>
+          <div id="local-settings-panel" class="settings-content">
+            <div class="form-group special-chars-setting">
+              <label class="checkbox-label">
+                <input type="checkbox" id="special-chars-enabled">
+                <span>启用特殊角色</span>
+                <span class="hint-text">新手建议关闭，所有玩家使用相同基础属性</span>
+              </label>
+            </div>
+            <div class="form-group fire-circle-setting">
+              <label class="fire-toggle-label">
+                <input type="checkbox" id="fire-enabled">
+                <span>启用火圈机制</span>
+              </label>
+              <div class="fire-cycle-row">
+                <span class="fire-cycle-text">扩散周期</span>
+                <select id="fire-cycle-select" class="ai-select fire-cycle-select">
+                  <option value="3">3 回合</option>
+                  <option value="5" selected>5 回合</option>
+                  <option value="7">7 回合</option>
+                  <option value="10">10 回合</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group terrain-setting">
+              <label class="terrain-setting-title">地形数量</label>
+              <div class="terrain-count-row">
+                <div class="terrain-count-item">
+                  <span class="terrain-count-text">💧 水坑</span>
+                  <select id="water-count" class="ai-select terrain-count-select">
+                    <option value="0">0</option>
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                  </select>
+                </div>
+                <div class="terrain-count-item">
+                  <span class="terrain-count-text">💦 水洼</span>
+                  <select id="puddle-count" class="ai-select terrain-count-select">
+                    <option value="0">0</option>
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                  </select>
+                </div>
+                <div class="terrain-count-item">
+                  <span class="terrain-count-text">⬛ 石柱</span>
+                  <select id="pillar-count" class="ai-select terrain-count-select">
+                    <option value="0">0</option>
+                    <option value="3">3</option>
+                    <option value="5" selected>5</option>
+                    <option value="8">8</option>
+                    <option value="12">12</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="form-group" id="player-names-group">
           <label>玩家名称</label>
@@ -94,10 +151,6 @@
           <button class="count-btn" data-count="2">2</button>
           <button class="count-btn" data-count="3">3</button>
           <button class="count-btn active" data-count="4">4</button>
-          <button class="count-btn" data-count="5">5</button>
-          <button class="count-btn" data-count="6">6</button>
-          <button class="count-btn" data-count="7">7</button>
-          <button class="count-btn" data-count="8">8</button>
         </div>
       </div>
       <div class="form-group">
@@ -107,11 +160,72 @@
           <option value="1">1 个电脑</option>
           <option value="2" selected>2 个电脑</option>
           <option value="3">3 个电脑</option>
-          <option value="4">4 个电脑</option>
-          <option value="5">5 个电脑</option>
-          <option value="6">6 个电脑</option>
-          <option value="7">7 个电脑</option>
         </select>
+      </div>
+      <div class="settings-panel">
+        <button type="button" class="settings-toggle" data-target="lobby-settings-panel">
+          <span>⚙️ 设置（特殊角色 / 火圈 / 地形）</span>
+          <span class="settings-arrow">▾</span>
+        </button>
+        <div id="lobby-settings-panel" class="settings-content">
+          <div class="form-group special-chars-setting">
+            <label class="checkbox-label">
+              <input type="checkbox" id="lobby-special-chars-enabled">
+              <span>启用特殊角色</span>
+              <span class="hint-text">新手建议关闭</span>
+            </label>
+          </div>
+          <div class="form-group fire-circle-setting">
+            <label class="fire-toggle-label">
+              <input type="checkbox" id="lobby-fire-enabled">
+              <span>启用火圈机制</span>
+            </label>
+            <div class="fire-cycle-row">
+              <span class="fire-cycle-text">扩散周期</span>
+              <select id="lobby-fire-cycle" class="ai-select fire-cycle-select">
+                <option value="3">3 回合</option>
+                <option value="5" selected>5 回合</option>
+                <option value="7">7 回合</option>
+                <option value="10">10 回合</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group terrain-setting">
+            <label class="terrain-setting-title">地形数量</label>
+            <div class="terrain-count-row">
+              <div class="terrain-count-item">
+                <span class="terrain-count-text">💧 水坑</span>
+                <select id="lobby-water-count" class="ai-select terrain-count-select">
+                  <option value="0">0</option>
+                  <option value="5">5</option>
+                  <option value="10" selected>10</option>
+                  <option value="15">15</option>
+                  <option value="20">20</option>
+                </select>
+              </div>
+              <div class="terrain-count-item">
+                <span class="terrain-count-text">💦 水洼</span>
+                <select id="lobby-puddle-count" class="ai-select terrain-count-select">
+                  <option value="0">0</option>
+                  <option value="5">5</option>
+                  <option value="10" selected>10</option>
+                  <option value="15">15</option>
+                  <option value="20">20</option>
+                </select>
+              </div>
+              <div class="terrain-count-item">
+                <span class="terrain-count-text">⬛ 石柱</span>
+                <select id="lobby-pillar-count" class="ai-select terrain-count-select">
+                  <option value="0">0</option>
+                  <option value="3">3</option>
+                  <option value="5" selected>5</option>
+                  <option value="8">8</option>
+                  <option value="12">12</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="form-group">
         <label>已加入玩家</label>
@@ -177,6 +291,8 @@
             <div class="shortcut-item"><kbd>1</kbd> 奔跑</div>
             <div class="shortcut-item"><kbd>2</kbd> 静步</div>
             <div class="shortcut-item"><kbd>3</kbd> 攻击</div>
+            <div class="shortcut-item"><kbd>4</kbd> 开枪（吴明卒）</div>
+            <div class="shortcut-item"><kbd>5</kbd> 模仿（声带）</div>
             <div class="shortcut-item"><kbd>WASD</kbd> 方向</div>
             <div class="shortcut-item"><kbd>Esc</kbd> 取消</div>
             <div class="shortcut-item"><kbd>回车</kbd> 确认</div>
@@ -215,7 +331,7 @@
         <p><b>结束阶段</b>：选择面朝方向</p>
         
         <h4>③ 行动类型</h4>
-        <p><b>🏃 奔跑</b>：移动 2 格，声音传播 3 格，高草丛在移动路径上晃动</p>
+        <p><b>🏃 奔跑</b>：移动 2 格，声音传播 3 格，高草丛在移动路径上晃动。可分两步选择方向，允许转弯</p>
         <p><b>🚶 静步</b>：移动 1 格，声音传播 1 格，高草丛在移动路径上晃动</p>
         <p><b>⚔️ 攻击</b>：攻击相邻一格，无声音，被攻击格草丛晃动。命中则淘汰对方。</p>
         
@@ -233,22 +349,31 @@
         <p>淘汰所有其他玩家，成为最后幸存者即获胜。</p>
 
         <h4>⑦ 角色系统</h4>
-        <p>游戏提供 8 个差异化角色，每个角色拥有独特的被动技能：</p>
-        <p><b>🏹 猎手</b>：视野更广，前方 3×3 共 9 格</p>
-        <p><b>🗡️ 刺客</b>：攻击距离 2 格，可隔空攻击</p>
-        <p><b>👣 斥候</b>：静步完全无声，但奔跑声音传播 4 格</p>
-        <p><b>🛡️ 守卫</b>：相遇时必胜，即使被偷袭也能反杀</p>
-        <p><b>🔮 巫师</b>：听觉增强，所有声音感知范围 +1 格</p>
-        <p><b>👤 影者</b>：奔跑声音更小（2 格），但视野缩小为正前方 2 格</p>
-        <p><b>⚔️ 狂战</b>：攻击命中时不消耗行动点（每回合限 1 次）</p>
-        <p><b>👁️ 预言者</b>：惨叫感知增强，能获知惨叫的大致距离</p>
+        <p>启用特殊角色后，玩家可从 4 个差异化角色中选择，每个角色拥有独特的背景故事和技能：</p>
+        <p><b>🔫 混混—吴明卒</b>：开局获得（玩家数-1）颗子弹。回合内可"开枪"，消耗1行动+1子弹，对一条直线上的第一个敌人造成伤害。子弹会被石柱阻挡。</p>
+        <p><b>🥊 “野狗”—乔</b>：首次被攻击时进入假死，跳过下回合且无法被攻击。苏醒后多1次行动且警惕性提高（经过他格子的行动都会被提防）。苏醒3回合后或被再次攻击则死亡。</p>
+        <p><b>😈 疯子—沙寇</b>：无法静步。听到惨叫时精确知道位置（坐标提示）。听到第一声惨叫后兴奋：奔跑距离+2格（多1次行动），且免疫遭遇击杀。</p>
+        <p><b>🎭 模仿者—“声带”</b>：回合内可模仿任意声音（惨叫/奔跑/静步/枪响），不消耗行动次数，每回合限1次。可迷惑其他玩家的判断。</p>
+
+        <h4>⑧ 特殊地形</h4>
+        <p>每局开局随机生成以下地形（数量由房主配置，玩家初始位置不会生成在水坑/石柱上）：</p>
+        <p><b>💧 水坑</b>（默认 10 处，可见）：移动路径经过水坑时，声音传播范围 +1 格；<b>站在水坑上的玩家会被视野内的其他玩家直接看到</b>（提示"自身XX水坑中有一个身影"）</p>
+        <p><b>💦 水洼</b>（默认 10 处，隐藏）：踩中时提示"踩中了水洼"，玩家事先不知位置</p>
+        <p><b>⬛ 石柱</b>（默认 5 处，可见）：无法穿过，移动路径遇石柱会被阻挡</p>
+
+        <h4>⑨ 火圈机制（可选）</h4>
+        <p>房主可在开始前启用火圈并设置扩散周期（3/5/7/10 回合）。</p>
+        <p><b>收缩</b>：每经过一个周期，火圈从外向内收缩一层，外圈格子开始燃烧。</p>
+        <p><b>强制移动</b>：处于燃烧格的玩家会被立即逼退到相邻安全格；若四面皆火则被淘汰。</p>
+        <p><b>警告区</b>：下一轮将燃烧的格子会显示为暗色警告，请提前撤离。</p>
+        <p><b>提示</b>：火圈收缩为全局事件，所有玩家均可见。利用火圈逼迫对手暴露位置。</p>
       </div>
       <button id="rules-close-btn" class="primary-btn">明白了</button>
     </div>
   </div>
 </div>
 
-<script src="net.js?v=3"></script>
-<script src="game.js?v=3"></script>
+<script src="net.js?v=12"></script>
+<script src="game.js?v=12"></script>
 </body>
 </html>
