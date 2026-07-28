@@ -15,6 +15,73 @@ const PLAYER_COLORS = [
 
 const PLAYER_NAMES_CN = ['一','二','三','四','五','六','七','八'];
 
+// 角色定义：每个角色有独特的被动技能
+const CHARACTERS = [
+  {
+    id: 'hunter',
+    name: '猎手',
+    icon: '🏹',
+    desc: '视野更广，前方3×3共9格（默认2×3共6格）',
+    skills: { visionRange: 3, visionWidth: 3 }
+  },
+  {
+    id: 'assassin',
+    name: '刺客',
+    icon: '🗡️',
+    desc: '攻击距离2格，可隔空攻击相邻格之外的敌人',
+    skills: { attackRange: 2 }
+  },
+  {
+    id: 'scout',
+    name: '斥候',
+    icon: '👣',
+    desc: '静步完全无声，但奔跑声音传播更远（4格）',
+    skills: { walkSoundRadius: 0, runSoundRadius: 4 }
+  },
+  {
+    id: 'guard',
+    name: '守卫',
+    icon: '🛡️',
+    desc: '相遇时必胜，即使被偷袭也能反杀对方',
+    skills: { encounterAlwaysWin: true }
+  },
+  {
+    id: 'mage',
+    name: '巫师',
+    icon: '🔮',
+    desc: '听觉增强，所有声音感知范围+1格',
+    skills: { hearingBonus: 1 }
+  },
+  {
+    id: 'shadow',
+    name: '影者',
+    icon: '👤',
+    desc: '奔跑声音更小（2格），但视野缩小为正前方2格',
+    skills: { runSoundRadius: 2, visionRange: 2, visionWidth: 1 }
+  },
+  {
+    id: 'berserker',
+    name: '狂战',
+    icon: '⚔️',
+    desc: '攻击命中时不消耗行动点（每回合限1次）',
+    skills: { freeHitPerTurn: 1 }
+  },
+  {
+    id: 'seer',
+    name: '预言者',
+    icon: '👁️',
+    desc: '惨叫感知增强，能获知惨叫的大致距离',
+    skills: { screamDistance: true }
+  },
+];
+
+// 获取角色技能配置（默认值）
+function getCharacterSkills(player) {
+  if (!player || !player.characterId) return {};
+  const char = CHARACTERS.find(c => c.id === player.characterId);
+  return char ? char.skills : {};
+}
+
 const SoundSystem = {
   ctx: null,
   enabled: true,
@@ -313,7 +380,7 @@ let game = {
   myPlayerIdx: 0,
 };
 
-function initGame(playerNames, aiCount) {
+function initGame(playerNames, aiCount, characterIds) {
   game.players = [];
   game.roundCount = 0;
   game.currentPlayerIdx = 0;
@@ -341,6 +408,22 @@ function initGame(playerNames, aiCount) {
 
     const isAI = i >= humanCount;
 
+    // 角色分配：优先使用传入的角色ID，否则随机分配
+    let characterId;
+    if (characterIds && characterIds[i]) {
+      characterId = characterIds[i];
+    } else {
+      // AI或未指定时随机选择
+      const availableChars = CHARACTERS.filter(c => 
+        !characterIds || !characterIds.includes(c.id)
+      );
+      characterId = availableChars.length > 0 
+        ? availableChars[Math.floor(Math.random() * availableChars.length)].id 
+        : CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)].id;
+    }
+
+    const charData = CHARACTERS.find(c => c.id === characterId) || CHARACTERS[0];
+
     game.players.push({
       id: i,
       name: playerNames[i] || (isAI ? `电脑${PLAYER_NAMES_CN[i - humanCount]}` : `玩家${PLAYER_NAMES_CN[i]}`),
@@ -349,6 +432,10 @@ function initGame(playerNames, aiCount) {
       facing: startDir,
       alive: true,
       isAI: isAI,
+      characterId: characterId,
+      characterName: charData.name,
+      characterIcon: charData.icon,
+      freeHitUsed: 0, // 狂战技能：本回合已使用的免费攻击次数
       aiKnowledge: {
         suspectedTargets: [],
       },
@@ -404,6 +491,10 @@ function getSoundDirection(listener, sourceX, sourceY) {
 }
 
 function getVisionCells(player) {
+  const skills = getCharacterSkills(player);
+  const range = skills.visionRange || 2; // 默认2格深
+  const width = skills.visionWidth || 3; // 默认3列（左前/正前/右前）
+
   const d = DIRS[player.facing];
   const leftDir = rotateLeft(player.facing);
   const rightDir = rotateRight(player.facing);
@@ -416,12 +507,14 @@ function getVisionCells(player) {
     rightFront: [],
   };
 
-  for (let step = 1; step <= 2; step++) {
+  for (let step = 1; step <= range; step++) {
     const fx = player.x + d.dx * step;
     const fy = player.y + d.dy * step;
     cells.front.push({ x: fx, y: fy });
-    cells.leftFront.push({ x: fx + ld.dx, y: fy + ld.dy });
-    cells.rightFront.push({ x: fx + rd.dx, y: fy + rd.dy });
+    if (width >= 3) {
+      cells.leftFront.push({ x: fx + ld.dx, y: fy + ld.dy });
+      cells.rightFront.push({ x: fx + rd.dx, y: fy + rd.dy });
+    }
   }
   return cells;
 }
@@ -491,6 +584,8 @@ function processPerceptionPhase(player) {
   const messages = [];
   const heardSounds = new Set();
   const seenGrassZones = new Set();
+  const skills = getCharacterSkills(player);
+  const hearingBonus = skills.hearingBonus || 0;
 
   for (const evt of game.pendingEvents) {
     if (evt.sourcePlayerId === player.id) continue;
@@ -498,7 +593,8 @@ function processPerceptionPhase(player) {
 
     if (evt.type === 'sound') {
       const dist = chebyshevDist(player.x, player.y, evt.x, evt.y);
-      if (dist <= evt.radius) {
+      // 巫师技能：听觉范围+1
+      if (dist <= evt.radius + hearingBonus) {
         const dir = getSoundDirection(player, evt.x, evt.y);
         const key = `${dir}-${evt.soundType}`;
         if (!heardSounds.has(key)) {
@@ -514,7 +610,14 @@ function processPerceptionPhase(player) {
       const key = `${dir}-scream`;
       if (!heardSounds.has(key)) {
         heardSounds.add(key);
-        messages.push({ type: 'sound', text: `${dir}方向发出过惨叫` });
+        // 预言者技能：惨叫感知带距离
+        if (skills.screamDistance) {
+          const dist = chebyshevDist(player.x, player.y, evt.x, evt.y);
+          const distDesc = dist <= 2 ? '极近' : dist <= 4 ? '较近' : dist <= 6 ? '较远' : '极远';
+          messages.push({ type: 'sound', text: `${dir}方向（${distDesc}）发出过惨叫` });
+        } else {
+          messages.push({ type: 'sound', text: `${dir}方向发出过惨叫` });
+        }
       }
     }
 
@@ -609,7 +712,9 @@ function doRun(direction) {
     }
   }
 
-  recordSoundEvent(startX, startY, 3, 'run', player.id);
+  const skills = getCharacterSkills(player);
+  const runSoundRadius = skills.runSoundRadius !== undefined ? skills.runSoundRadius : 3;
+  recordSoundEvent(startX, startY, runSoundRadius, 'run', player.id);
   recordGrassEvent(grassCells, player.id);
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name} 朝${DIRS[direction].name}方向奔跑`, 'action');
@@ -642,7 +747,9 @@ function doWalk(direction) {
     return false;
   }
 
-  recordSoundEvent(result.oldX, result.oldY, 1, 'walk', player.id);
+  const skills = getCharacterSkills(player);
+  const walkSoundRadius = skills.walkSoundRadius !== undefined ? skills.walkSoundRadius : 1;
+  recordSoundEvent(result.oldX, result.oldY, walkSoundRadius, 'walk', player.id);
   recordGrassEvent(result.grassCells, player.id);
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name} 朝${DIRS[direction].name}方向静步`, 'action');
@@ -655,9 +762,11 @@ function doWalk(direction) {
 
 function doAttack(direction) {
   const player = getCurrentPlayer();
+  const skills = getCharacterSkills(player);
+  const attackRange = skills.attackRange || 1;
   const d = DIRS[direction];
-  const tx = player.x + d.dx;
-  const ty = player.y + d.dy;
+  const tx = player.x + d.dx * attackRange;
+  const ty = player.y + d.dy * attackRange;
 
   if (!inBounds(tx, ty)) {
     if (shouldShowActionInfo(player)) {
@@ -667,7 +776,12 @@ function doAttack(direction) {
     return false;
   }
 
-  recordGrassEvent([{ x: tx, y: ty }], player.id);
+  // 攻击路径上的格子都会晃动
+  const grassCells = [];
+  for (let step = 1; step <= attackRange; step++) {
+    grassCells.push({ x: player.x + d.dx * step, y: player.y + d.dy * step });
+  }
+  recordGrassEvent(grassCells, player.id);
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name} 朝${DIRS[direction].name}方向攻击`, 'action');
     SoundSystem.play('attack');
@@ -682,6 +796,11 @@ function doAttack(direction) {
       for (const t of targets) {
         addActionLog(`${t.name} 被淘汰`, 'system');
       }
+    }
+    // 狂战技能：命中时不消耗行动点（每回合限1次）
+    if (skills.freeHitPerTurn && player.freeHitUsed < skills.freeHitPerTurn) {
+      player.freeHitUsed++;
+      player._freeHitThisAction = true; // 标记本次行动不消耗行动点
     }
     for (const t of targets) {
       killPlayer(t);
@@ -719,7 +838,12 @@ function checkEncounter(movingPlayer, oldX, oldY) {
   let movingDead = false;
   let reason = '';
 
-  if (entryDir === stationary.facing) {
+  // 守卫技能：相遇时必胜（stationary是守卫时，移动者必死）
+  const stationarySkills = getCharacterSkills(stationary);
+  if (stationarySkills.encounterAlwaysWin) {
+    movingDead = true;
+    reason = `${stationary.name}（守卫）反杀成功，${movingPlayer.name} 被淘汰`;
+  } else if (entryDir === stationary.facing) {
     movingDead = true;
     reason = `${stationary.name} 提防成功，${movingPlayer.name} 被淘汰`;
   } else {
@@ -968,13 +1092,16 @@ function evaluateActionRisk(actionType, dir, x, y, beliefMap) {
   return risk;
 }
 
-function evaluateActionReward(actionType, dir, x, y, beliefMap, targetX, targetY) {
+function evaluateActionReward(actionType, dir, x, y, beliefMap, targetX, targetY, player) {
   let reward = 0;
   const d = DIRS[dir];
-  
+
   if (actionType === 'attack') {
-    const tx = x + d.dx;
-    const ty = y + d.dy;
+    // 支持刺客的2格攻击距离
+    const skills = getCharacterSkills(player);
+    const attackRange = skills.attackRange || 1;
+    const tx = x + d.dx * attackRange;
+    const ty = y + d.dy * attackRange;
     if (inBounds(tx, ty)) {
       const belief = beliefMap[ty][tx];
       const unknownPrior = (game.players.filter(p => p.alive).length - 1) / 99;
@@ -1080,7 +1207,7 @@ function aiChooseAction(aiPlayer, perceptionMsgs) {
       if (!valid) continue;
       
       const risk = evaluateActionRisk(actionType, dir, aiPlayer.x, aiPlayer.y, beliefMap);
-      const reward = evaluateActionReward(actionType, dir, aiPlayer.x, aiPlayer.y, beliefMap, targetX, targetY);
+      const reward = evaluateActionReward(actionType, dir, aiPlayer.x, aiPlayer.y, beliefMap, targetX, targetY, aiPlayer);
       
       let score = reward - risk * (1 - aggression);
       
@@ -1250,7 +1377,16 @@ function showWallHit() {
 }
 
 function useAction() {
-  game.actionCount--;
+  const player = getCurrentPlayer();
+  // 狂战技能：命中时不消耗行动点
+  if (player._freeHitThisAction) {
+    player._freeHitThisAction = false;
+    if (shouldShowActionInfo(player)) {
+      addActionLog(`${player.characterName}技能触发：攻击不消耗行动点`, 'system');
+    }
+  } else {
+    game.actionCount--;
+  }
   updateActionBar();
   renderBoard();
   updateStatusBar();
@@ -1312,6 +1448,13 @@ function advanceToNextPlayer() {
   game.currentPlayerIdx = nextIdx;
   game.actionCount = 2;
   game.selectedAction = null;
+
+  // 重置新玩家的技能使用计数
+  const newPlayer = game.players[nextIdx];
+  if (newPlayer) {
+    newPlayer.freeHitUsed = 0;
+    newPlayer._freeHitThisAction = false;
+  }
 
   const isFirstTurnOfPlayer1 = (game.roundCount === 0 && nextIdx === 0);
   
@@ -1660,7 +1803,10 @@ function updateActionBar() {
 
     const attackBtn = document.createElement('button');
     attackBtn.className = `action-btn ${game.selectedAction?.type === 'attack' ? 'primary' : ''}`;
-    attackBtn.innerHTML = '⚔️ 攻击<br><small>相邻1格</small>';
+    const player = getCurrentPlayer();
+    const skills = getCharacterSkills(player);
+    const attackRange = skills.attackRange || 1;
+    attackBtn.innerHTML = `⚔️ 攻击<br><small>${attackRange > 1 ? `距离${attackRange}格` : '相邻1格'}</small>`;
     attackBtn.disabled = game.actionCount <= 0;
     attackBtn.addEventListener('click', () => selectAction('attack'));
     bar.appendChild(attackBtn);
@@ -1701,33 +1847,36 @@ function finishTurn(direction) {
 function updateStatusBar() {
   const bar = document.getElementById('player-status-bar');
   bar.innerHTML = '';
-  
+
   for (const p of game.players) {
     const chip = document.createElement('div');
     chip.className = `player-chip ${p.alive ? '' : 'dead'}`;
-    
+
     const dot = document.createElement('span');
     dot.className = 'color-dot';
     dot.style.background = p.color;
     chip.appendChild(dot);
-    
+
     const name = document.createElement('span');
-    name.textContent = p.name;
+    // 显示角色图标
+    const iconPrefix = p.characterIcon ? `${p.characterIcon} ` : '';
+    name.textContent = iconPrefix + p.name;
     chip.appendChild(name);
-    
+
     if (p.alive && p.id === game.currentPlayerIdx) {
       chip.style.border = `2px solid ${p.color}`;
     }
-    
+
     bar.appendChild(chip);
   }
 }
 
 function updateTurnInfo() {
   const player = getCurrentPlayer();
-  document.getElementById('current-player-label').textContent = player.name;
+  const iconPrefix = player.characterIcon ? `${player.characterIcon} ` : '';
+  document.getElementById('current-player-label').textContent = iconPrefix + player.name;
   document.getElementById('current-player-label').style.color = player.color;
-  
+
   const phaseNames = {
     perception: '感知阶段',
     action: '行动阶段',
@@ -1752,7 +1901,9 @@ function showTurnMask() {
 
   const mask = document.getElementById('turn-mask');
   const text = document.getElementById('turn-mask-text');
-  text.textContent = `请将设备交给 ${player.name}`;
+  const iconPrefix = player.characterIcon ? `${player.characterIcon} ` : '';
+  const charSuffix = player.characterName ? `（${player.characterName}）` : '';
+  text.textContent = `请将设备交给 ${iconPrefix}${player.name}${charSuffix}`;
   mask.classList.remove('hidden');
   clearPerceptionLog();
   document.getElementById('action-log').innerHTML = '';
@@ -1852,8 +2003,11 @@ function onTurnMaskConfirm() {
 function showEndScreen() {
   document.getElementById('game-screen').classList.add('hidden');
   document.getElementById('end-screen').classList.remove('hidden');
-  document.getElementById('winner-text').innerHTML = 
-    `<span class="winner-name">${game.winner?.name || '无'}</span> 获胜！`;
+  const winner = game.winner;
+  const iconPrefix = winner?.characterIcon ? `${winner.characterIcon} ` : '';
+  const charSuffix = winner?.characterName ? `（${winner.characterName}）` : '';
+  document.getElementById('winner-text').innerHTML =
+    `<span class="winner-name">${iconPrefix}${winner?.name || '无'}${charSuffix}</span> 获胜！`;
 }
 
 function setupPlayerCountSelector() {
@@ -1876,19 +2030,22 @@ function setupPlayerCountSelector() {
 function renderPlayerNameInputs(count) {
   const container = document.getElementById('player-names-list');
   container.innerHTML = '';
-  
+
   const aiCount = getAICount();
   const humanCount = count - aiCount;
-  
+
+  // 追踪已选角色，避免重复
+  const usedCharacters = new Set();
+
   for (let i = 0; i < count; i++) {
     const row = document.createElement('div');
     row.className = 'name-input-row';
-    
+
     const dot = document.createElement('span');
     dot.className = 'color-dot';
     dot.style.background = PLAYER_COLORS[i];
     row.appendChild(dot);
-    
+
     const input = document.createElement('input');
     input.type = 'text';
     const isAI = i >= humanCount;
@@ -1902,9 +2059,75 @@ function renderPlayerNameInputs(count) {
     input.dataset.idx = i;
     input.maxLength = 10;
     row.appendChild(input);
-    
+
+    // 角色选择下拉框
+    const charSelect = document.createElement('select');
+    charSelect.className = 'char-select';
+    charSelect.dataset.idx = i;
+
+    // 默认选项
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '随机角色';
+    charSelect.appendChild(defaultOpt);
+
+    // 角色列表
+    CHARACTERS.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.icon} ${c.name}`;
+      charSelect.appendChild(opt);
+    });
+
+    // AI玩家默认随机
+    if (isAI) {
+      charSelect.disabled = true;
+      charSelect.style.opacity = '0.6';
+    } else {
+      // 人类玩家选择角色时更新可用选项
+      charSelect.addEventListener('change', updateCharacterOptions);
+    }
+    charSelect.dataset.idx = i;
+    row.appendChild(charSelect);
+
     container.appendChild(row);
   }
+}
+
+/**
+ * 更新角色选择选项，避免人类玩家选择重复角色
+ */
+function updateCharacterOptions() {
+  const selects = document.querySelectorAll('#player-names-list .char-select');
+  const selected = {};
+  selects.forEach(s => {
+    if (s.value && !s.disabled) {
+      selected[s.dataset.idx] = s.value;
+    }
+  });
+
+  selects.forEach(s => {
+    if (s.disabled) return;
+    const currentVal = s.value;
+    Array.from(s.options).forEach(opt => {
+      if (!opt.value) return; // 跳过"随机角色"
+      const isSelectedByOther = Object.values(selected).includes(opt.value) && selected[s.dataset.idx] !== opt.value;
+      opt.disabled = isSelectedByOther;
+      opt.style.color = isSelectedByOther ? '#555' : '';
+    });
+  });
+}
+
+/**
+ * 获取已选择的角色ID列表
+ */
+function getSelectedCharacters() {
+  const selects = document.querySelectorAll('#player-names-list .char-select');
+  const characterIds = [];
+  selects.forEach(s => {
+    characterIds.push(s.value || null);
+  });
+  return characterIds;
 }
 
 function getPlayerNames() {
@@ -1924,13 +2147,14 @@ function getAICount() {
 function startGame() {
   const names = getPlayerNames();
   const aiCount = getAICount();
-  initGame(names, aiCount);
-  
+  const characterIds = getSelectedCharacters();
+  initGame(names, aiCount, characterIds);
+
   document.getElementById('setup-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
-  
+
   updateAll();
-  
+
   const firstPlayer = getCurrentPlayer();
   if (firstPlayer.isAI) {
     setTimeout(executeAITurn, 1000);
@@ -1993,6 +2217,9 @@ function getPublicState() {
       id: p.id, name: p.name, color: p.color,
       x: p.x, y: p.y, facing: p.facing,
       alive: p.alive, isAI: p.isAI,
+      characterId: p.characterId,
+      characterName: p.characterName,
+      characterIcon: p.characterIcon,
     })),
     currentPlayerIdx: game.currentPlayerIdx,
     phase: game.phase,
@@ -2024,6 +2251,10 @@ function applyRemoteState(state) {
       y: isMe ? p.y : -1,
       facing: isMe ? p.facing : 'N',
       alive: p.alive, isAI: p.isAI,
+      characterId: p.characterId,
+      characterName: p.characterName,
+      characterIcon: p.characterIcon,
+      freeHitUsed: 0,
       aiKnowledge: { suspectedTargets: [] }
     };
   });
@@ -2365,6 +2596,7 @@ function startOnlineGame() {
   // 初始化游戏
   game.gameMode = 'online-host';
   game.myPlayerIdx = 0;
+  // 联机模式下随机分配角色（未来可扩展为客机端选择）
   initGame(names, aiCount);
 
   // 通知客机游戏开始

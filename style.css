@@ -133,6 +133,32 @@ body {
   border-color: #e94560;
 }
 
+/* 角色选择下拉框 */
+.char-select {
+  padding: 8px 10px;
+  background: #0f1626;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 110px;
+}
+
+.char-select:focus {
+  border-color: #e94560;
+}
+
+.char-select:hover:not(:disabled) {
+  border-color: #e94560;
+}
+
+.char-select option:disabled {
+  color: #555;
+}
+
 .primary-btn {
   width: 100%;
   padding: 14px;
