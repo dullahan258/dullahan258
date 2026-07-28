@@ -28,10 +28,10 @@ const CHARACTERS = [
     name: '吴明卒',
     icon: '🔫',
     title: '混混',
-    desc: '开局获得(玩家数-1)颗子弹；回合内可"开枪"，消耗1行动+1子弹，对直线上第一个敌人造成伤害',
+    desc: '开局获得(玩家数-1)颗子弹；回合内可"开枪"，消耗1行动+1子弹，对直线上第一个敌人造成伤害；枪声会传播至整个地图',
     background: '自从在一家酒吧后门垃圾桶旁捡到一把貌似是真家伙的手枪后，他就一直在和他的同伴炫耀，显得一头红毛的他更像一只大公鸡。虽然他一直害怕这是个真家伙，但现在的他反而希望他手上这黑漆漆的东西不是玩具。',
     skillName: '无技巧的射击',
-    skillDesc: '游戏开始时获得(玩家数-1)颗子弹。回合内可执行"开枪"行动：消耗1行动次数和1颗子弹，对一条直线上的第一个敌人造成伤害。',
+    skillDesc: '游戏开始时获得(玩家数-1)颗子弹。回合内可执行"开枪"行动：消耗1行动次数和1颗子弹，对一条直线上的第一个敌人造成伤害。子弹会被石柱阻挡。枪声会传播至整个地图，所有玩家都能听到方向。',
     skills: { canShoot: true }
   },
   {
@@ -837,7 +837,11 @@ function processPerceptionPhase(player) {
         const key = `${dir}-${evt.soundType}`;
         if (!heardSounds.has(key)) {
           heardSounds.add(key);
-          const soundName = evt.soundType === 'run' ? '奔跑' : '静步';
+          let soundName;
+          if (evt.soundType === 'run') soundName = '奔跑';
+          else if (evt.soundType === 'walk') soundName = '静步';
+          else if (evt.soundType === 'gunshot') soundName = '枪响';
+          else soundName = evt.soundType;
           messages.push({ type: 'sound', text: `${dir}方向发出过${soundName}的声音` });
         }
       }
@@ -1235,6 +1239,9 @@ function doShoot(direction) {
   // 消耗子弹
   player.bullets--;
 
+  // 枪声：全地图传播（半径20，确保覆盖10x10地图）
+  recordSoundEvent(player.x, player.y, 20, 'gunshot', player.id);
+
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name}（吴明卒）朝${DIRS[direction].name}方向开枪！`, 'action');
     SoundSystem.play('attack');
@@ -1300,7 +1307,7 @@ function doMimic(soundType, direction) {
     soundName = '静步';
     SoundSystem.play('walk');
   } else if (soundType === 'gunshot') {
-    recordSoundEvent(fx, fy, 5, 'run', player.id); // 枪响用更大的半径
+    recordSoundEvent(fx, fy, 20, 'gunshot', player.id); // 枪响全地图传播
     soundName = '枪响';
     SoundSystem.play('attack');
   }
