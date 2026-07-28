@@ -2612,6 +2612,8 @@ function updateActionBar() {
 
   if (game.phase === 'action') {
     const canAct = canActLocal();
+    const player = getCurrentPlayer();
+    const skills = getCharacterSkills(player);
 
     // 联机模式下非自己的回合显示等待提示
     if (!canAct && !isLocalMode()) {
@@ -2662,8 +2664,6 @@ function updateActionBar() {
 
     const attackBtn = document.createElement('button');
     attackBtn.className = `action-btn ${game.selectedAction?.type === 'attack' ? 'primary' : ''}`;
-    const player = getCurrentPlayer();
-    const skills = getCharacterSkills(player);
     const attackRange = skills.attackRange || 1;
     attackBtn.innerHTML = `⚔️ 攻击<br><small>${attackRange > 1 ? `距离${attackRange}格` : '相邻1格'}</small>`;
     attackBtn.disabled = game.actionCount <= 0;
