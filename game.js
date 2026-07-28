@@ -436,6 +436,7 @@ function initGame(playerNames, aiCount, characterIds) {
       characterName: charData.name,
       characterIcon: charData.icon,
       freeHitUsed: 0, // 狂战技能：本回合已使用的免费攻击次数
+      marks: new Set(), // 玩家标记的格子（坐标字符串，如 "3,5"）
       aiKnowledge: {
         suspectedTargets: [],
       },
@@ -1563,6 +1564,11 @@ function renderBoard() {
       cell.dataset.x = col;
       cell.dataset.y = row;
       cell.addEventListener('click', () => onCellClick(col, row));
+      // 右键标记
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        toggleMark(col, row);
+      });
 
       const player = game.players.find(p => p.alive && p.x === col && p.y === row);
       if (player && game.phase !== 'perception') {
@@ -1575,6 +1581,22 @@ function renderBoard() {
           arrow.className = 'arrow';
           marker.appendChild(arrow);
           cell.appendChild(marker);
+        }
+      }
+
+      // 显示玩家标记（仅当前玩家可见，所有阶段都显示）
+      const currentPlayer = getCurrentPlayer();
+      if (currentPlayer && game.phase !== 'gameOver') {
+        const isCurrentPlayerVisible = isLocalMode() ? !currentPlayer.isAI : currentPlayer.id === game.myPlayerIdx;
+        if (isCurrentPlayerVisible) {
+          const markKey = `${col},${row}`;
+          if (currentPlayer.marks.has(markKey)) {
+            cell.classList.add('marked-cell');
+            const flag = document.createElement('div');
+            flag.className = 'mark-flag';
+            flag.textContent = '🚩';
+            cell.appendChild(flag);
+          }
         }
       }
 
@@ -1623,6 +1645,37 @@ function isHighlightedAttack(x, y) {
     const ty = player.y + d.dy;
     if (tx === x && ty === y && inBounds(tx, ty)) return true;
   }
+  return false;
+}
+
+/**
+ * 切换格子标记（右键/长按）
+ * 类似扫雷的插旗功能，仅当前玩家可见
+ */
+function toggleMark(x, y) {
+  if (!canMarkLocal()) return;
+
+  const player = getCurrentPlayer();
+  const key = `${x},${y}`;
+
+  // 不能标记自己所在的位置
+  if (player.x === x && player.y === y) return;
+
+  if (player.marks.has(key)) {
+    player.marks.delete(key);
+  } else {
+    player.marks.add(key);
+  }
+
+  SoundSystem.play('click');
+  renderBoard();
+}
+
+function canMarkLocal() {
+  if (game.phase === 'gameOver') return false;
+  if (isLocalMode()) return true;
+  if (isGuestMode()) return true; // 客机在任何阶段都可以标记
+  if (isHostMode()) return true; // 主机在任何阶段都可以标记
   return false;
 }
 
@@ -2758,6 +2811,17 @@ function handleKeyboard(e) {
   if (getCurrentPlayer()?.isAI) return;
 
   const key = e.key.toLowerCase();
+
+  // M 键：清除所有标记（全局可用）
+  if (key === 'm' && canMarkLocal()) {
+    const player = getCurrentPlayer();
+    if (player.marks.size > 0) {
+      player.marks.clear();
+      SoundSystem.play('click');
+      renderBoard();
+    }
+    return;
+  }
 
   if (game.phase === 'perception') {
     // 联机模式下客机不自行切换阶段
