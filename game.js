@@ -1423,7 +1423,7 @@ function renderBoard() {
 
       const player = game.players.find(p => p.alive && p.x === col && p.y === row);
       if (player && game.phase !== 'perception') {
-        if (player.id === game.currentPlayerIdx && shouldShowActionInfo(player)) {
+        if (shouldShowPlayerPosition(player)) {
           cell.classList.add('player-cell');
           const marker = document.createElement('div');
           marker.className = `player-marker facing-${player.facing.toLowerCase()}`;
@@ -1556,12 +1556,17 @@ function updateActionBar() {
     hint.textContent = '感知阶段 - 请查看左侧感知信息';
     bar.appendChild(hint);
 
-    // 联机客机模式下不显示进入行动按钮
-    if (!isGuestMode()) {
+    // 联机模式下，只有当前轮到的玩家可以切换阶段
+    if (isLocalMode() || isMyTurn()) {
       const btn = document.createElement('button');
       btn.className = 'action-btn primary';
       btn.textContent = '进入行动阶段';
       btn.addEventListener('click', () => {
+        if (isGuestMode()) {
+          // 客机：通知主机切换阶段
+          Net.sendToHost({ type: 'enterAction' });
+          return;
+        }
         game.phase = 'action';
         game.actionCount = 2;
         if (shouldShowActionInfo(getCurrentPlayer())) {
@@ -1575,7 +1580,7 @@ function updateActionBar() {
       const waitHint = document.createElement('div');
       waitHint.style.fontSize = '13px';
       waitHint.style.color = '#8892b0';
-      waitHint.textContent = '等待主机切换阶段...';
+      waitHint.textContent = '等待当前玩家行动...';
       bar.appendChild(waitHint);
     }
     return;
@@ -1952,11 +1957,21 @@ function isMyTurn() {
 }
 
 /**
- * 判断某玩家的行动信息（日志/音效）是否对当前观察者可见
+ * 判断某玩家的行动信息（日志/音效/图标）是否对当前观察者可见
  * - 本地模式：当前操作者是人类时可见（AI回合隐藏）
  * - 联机模式：只有自己的行动可见
  */
 function shouldShowActionInfo(player) {
+  if (isLocalMode()) return !player.isAI;
+  return player.id === game.myPlayerIdx;
+}
+
+/**
+ * 判断某玩家的位置是否对当前观察者可见（用于棋盘渲染）
+ * - 本地模式：当前回合玩家可见（AI回合隐藏）
+ * - 联机模式：只有自己可见
+ */
+function shouldShowPlayerPosition(player) {
   if (isLocalMode()) return !player.isAI;
   return player.id === game.myPlayerIdx;
 }
@@ -1970,20 +1985,20 @@ function canActLocal() {
 
 /**
  * 获取公开状态（广播用）
+ * 为每个客机隐藏其他玩家的位置和朝向
  */
 function getPublicState() {
   return {
     players: game.players.map(p => ({
       id: p.id, name: p.name, color: p.color,
       x: p.x, y: p.y, facing: p.facing,
-      alive: p.alive, isAI: p.isAI
+      alive: p.alive, isAI: p.isAI,
     })),
     currentPlayerIdx: game.currentPlayerIdx,
     phase: game.phase,
     actionCount: game.actionCount,
     roundCount: game.roundCount,
     winner: game.winner ? game.winner.id : null,
-    myPlayerIdx: game.myPlayerIdx,
   };
 }
 
@@ -1997,18 +2012,27 @@ function broadcastGameState() {
 
 /**
  * 客机：应用远程状态
+ * 隐藏除自己外其他玩家的真实位置和朝向
  */
 function applyRemoteState(state) {
-  game.players = state.players.map(p => ({
-    ...p,
-    aiKnowledge: { suspectedTargets: [] }
-  }));
+  game.players = state.players.map(p => {
+    const isMe = p.id === game.myPlayerIdx;
+    return {
+      id: p.id, name: p.name, color: p.color,
+      // 只有自己可见真实位置，其他人隐藏
+      x: isMe ? p.x : -1,
+      y: isMe ? p.y : -1,
+      facing: isMe ? p.facing : 'N',
+      alive: p.alive, isAI: p.isAI,
+      aiKnowledge: { suspectedTargets: [] }
+    };
+  });
   game.currentPlayerIdx = state.currentPlayerIdx;
   game.phase = state.phase;
   game.actionCount = state.actionCount;
   game.roundCount = state.roundCount;
   game.winner = state.winner !== null ? game.players.find(p => p.id === state.winner) : null;
-  game.myPlayerIdx = state.myPlayerIdx;
+  // myPlayerIdx 不从 state 读取，客机保留自己的身份
   game.selectedAction = null;
 
   updateAll();
@@ -2069,6 +2093,20 @@ function handleHostMessage(data, peerId) {
     if (!guest || guest.playerIdx !== game.currentPlayerIdx) return;
 
     endTurn(data.facing);
+  } else if (data.type === 'enterAction') {
+    // 客机请求从感知阶段进入行动阶段
+    if (game.phase !== 'perception') return;
+    const guest = Object.values(Net.guests).find(g => g.peerId === peerId);
+    if (!guest || guest.playerIdx !== game.currentPlayerIdx) return;
+
+    game.phase = 'action';
+    game.actionCount = 2;
+    game.selectedAction = null;
+    if (shouldShowActionInfo(getCurrentPlayer())) {
+      addActionLog(`${getCurrentPlayer().name} 进入行动阶段`, 'system');
+    }
+    updateAll();
+    broadcastGameState();
   }
 }
 
