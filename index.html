@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>困兽之斗</title>
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -13,7 +14,15 @@
     <div class="setup-box">
       <h1>困兽之斗</h1>
       <p class="subtitle">高草丛中的无声对决</p>
-      <div class="setup-form">
+
+      <!-- 模式选择 -->
+      <div class="mode-selector">
+        <button class="mode-btn active" data-mode="local">本地对战</button>
+        <button class="mode-btn" data-mode="online">联机对战</button>
+      </div>
+
+      <!-- 本地模式设置 -->
+      <div id="local-setup" class="setup-form">
         <div class="form-group">
           <label>玩家数量</label>
           <div class="player-count-selector">
@@ -48,6 +57,80 @@
           <button id="rules-btn" class="link-btn">游戏规则说明</button>
         </div>
       </div>
+
+      <!-- 联机模式设置 -->
+      <div id="online-setup" class="setup-form hidden">
+        <div class="form-group">
+          <label>你的名称</label>
+          <input type="text" id="online-name-input" class="text-input" maxlength="10" placeholder="输入你的名称">
+        </div>
+        <button id="create-room-btn" class="primary-btn">创建房间</button>
+        <div class="online-divider"><span>或</span></div>
+        <div class="form-group">
+          <label>房间号</label>
+          <input type="text" id="room-code-input" class="text-input" maxlength="6" placeholder="输入6位房间号">
+        </div>
+        <button id="join-room-btn" class="primary-btn">加入房间</button>
+        <div style="text-align:center; margin-top: 16px;">
+          <button id="rules-btn-online" class="link-btn">游戏规则说明</button>
+        </div>
+        <div id="online-error" class="online-error hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 联机大厅（主机） -->
+  <div id="lobby-screen" class="screen hidden">
+    <div class="setup-box">
+      <h1>联机大厅</h1>
+      <div class="room-code-display">
+        <label>房间号</label>
+        <div id="lobby-room-code" class="room-code">------</div>
+        <button id="copy-code-btn" class="link-btn">复制</button>
+      </div>
+      <div class="form-group">
+        <label>玩家人数</label>
+        <div class="player-count-selector" id="lobby-player-count">
+          <button class="count-btn" data-count="2">2</button>
+          <button class="count-btn" data-count="3">3</button>
+          <button class="count-btn active" data-count="4">4</button>
+          <button class="count-btn" data-count="5">5</button>
+          <button class="count-btn" data-count="6">6</button>
+          <button class="count-btn" data-count="7">7</button>
+          <button class="count-btn" data-count="8">8</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>电脑玩家数量</label>
+        <select id="lobby-ai-count" class="ai-select">
+          <option value="0">0 人</option>
+          <option value="1">1 个电脑</option>
+          <option value="2" selected>2 个电脑</option>
+          <option value="3">3 个电脑</option>
+          <option value="4">4 个电脑</option>
+          <option value="5">5 个电脑</option>
+          <option value="6">6 个电脑</option>
+          <option value="7">7 个电脑</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>已加入玩家</label>
+        <div id="lobby-player-list" class="lobby-player-list"></div>
+      </div>
+      <button id="lobby-start-btn" class="primary-btn">开始游戏</button>
+      <button id="lobby-back-btn" class="link-btn" style="margin-top:12px;">返回</button>
+    </div>
+  </div>
+
+  <!-- 联机等待（客机） -->
+  <div id="waiting-screen" class="screen hidden">
+    <div class="setup-box">
+      <h1>已加入房间</h1>
+      <p class="subtitle" id="waiting-room-code">房间: ------</p>
+      <p class="subtitle" style="margin-top:16px;">等待主机开始游戏...</p>
+      <div id="waiting-player-list" class="lobby-player-list" style="margin-top:16px;"></div>
+      <div class="loading-spinner"></div>
+      <button id="waiting-back-btn" class="link-btn" style="margin-top:24px;">离开房间</button>
     </div>
   </div>
 
@@ -152,6 +235,7 @@
   </div>
 </div>
 
-<script src="game.js?v=2"></script>
+<script src="net.js?v=3"></script>
+<script src="game.js?v=3"></script>
 </body>
 </html>
