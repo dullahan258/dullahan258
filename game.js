@@ -17,7 +17,7 @@ const PLAYER_NAMES_CN = ['一','二','三','四','五','六','七','八'];
 
 // 地形类型
 // 'water'   水坑 - 移动路径经过时声音传播范围+1
-// 'puddle'  水洼 - 踩中时提示，玩家事先不知位置
+// 'puddle'  洼地 - 踩中时提示，玩家事先不知位置
 // 'pillar'  石柱 - 不可穿过
 const TERRAIN_TYPES = { WATER: 'water', PUDDLE: 'puddle', PILLAR: 'pillar' };
 
@@ -384,6 +384,11 @@ let game = {
   pendingAnimations: [],
   // 行动历史记录（用于游戏结束复盘）
   actionHistory: [],
+  // 指示器开关：显示视野/听力范围
+  showVisionIndicator: false,
+  showHearingIndicator: false,
+  // 当前玩家感知到的高草丛在动格子（高亮标记用）
+  perceivedGrassCells: [],
 };
 
 /* ===== 动画辅助系统 ===== */
@@ -602,6 +607,8 @@ function initGame(playerNames, aiCount, characterIds, fireCircleConfig, enableSp
   game.winner = null;
   game.pendingAnimations = [];
   game.actionHistory = [];
+  game.showVisionIndicator = false;
+  game.showHearingIndicator = false;
 
   // 火圈配置
   if (fireCircleConfig) {
@@ -628,7 +635,7 @@ function initGame(playerNames, aiCount, characterIds, fireCircleConfig, enableSp
       x = Math.floor(Math.random() * BOARD_SIZE);
       y = Math.floor(Math.random() * BOARD_SIZE);
       attempts++;
-      // 玩家开局不生成在水坑/石柱上（水洼允许，因为玩家事先不知）
+      // 玩家开局不生成在水坑/石柱上（洼地允许，因为玩家事先不知）
     } while ((usedCells.has(`${x},${y}`) || isWater(x, y) || isPillar(x, y)) && attempts < 500);
     usedCells.add(`${x},${y}`);
 
@@ -796,6 +803,37 @@ function isInVision(player, cellX, cellY) {
   return getVisionZoneName(player, cellX, cellY) !== null;
 }
 
+// 获取玩家可监听到的声音半径范围（用于指示器显示）
+// 显示静步、奔跑两个半径范围（不考虑水坑加成，仅展示基础范围）
+function getHearingRadii(player) {
+  const skills = getCharacterSkills(player);
+  const hearingBonus = skills.hearingBonus || 0;
+  return {
+    walk: (skills.walkSoundRadius !== undefined ? skills.walkSoundRadius : 1) + hearingBonus,
+    run: (skills.runSoundRadius !== undefined ? skills.runSoundRadius : 3) + hearingBonus,
+    gunshot: 20, // 枪响全图传播
+  };
+}
+
+// 检查某格是否在玩家基础听力范围内（曼哈顿距离）
+function isInHearingRange(player, cellX, cellY, radiusType) {
+  const radii = getHearingRadii(player);
+  const radius = radii[radiusType] || 0;
+  if (radius <= 0) return false;
+  const dist = manhattanDist(player.x, player.y, cellX, cellY);
+  return dist >= 1 && dist <= radius; // 不包含自己所在格
+}
+
+// 获取某格属于哪个听力区域（曼哈顿距离）
+function getHearingZone(player, cellX, cellY) {
+  const radii = getHearingRadii(player);
+  const dist = manhattanDist(player.x, player.y, cellX, cellY);
+  if (dist <= 0) return null;
+  if (dist <= radii.walk) return 'walk';
+  if (dist <= radii.run) return 'run';
+  return null;
+}
+
 function rotateLeft(dir) {
   const order = ['N','W','S','E'];
   const idx = order.indexOf(dir);
@@ -843,6 +881,7 @@ function processPerceptionPhase(player) {
   const messages = [];
   const heardSounds = new Set();
   const seenGrassZones = new Set();
+  const perceivedGrassCells = [];
   const skills = getCharacterSkills(player);
   const hearingBonus = skills.hearingBonus || 0;
 
@@ -851,7 +890,7 @@ function processPerceptionPhase(player) {
     if (evt.perceivedBy.has(player.id)) continue;
 
     if (evt.type === 'sound') {
-      const dist = chebyshevDist(player.x, player.y, evt.x, evt.y);
+      const dist = manhattanDist(player.x, player.y, evt.x, evt.y);
       // 巫师技能：听觉范围+1
       if (dist <= evt.radius + hearingBonus) {
         const dir = getSoundDirection(player, evt.x, evt.y);
@@ -884,7 +923,7 @@ function processPerceptionPhase(player) {
           }
         } else if (skills.screamDistance) {
           // 预言者技能：惨叫感知带距离
-          const dist = chebyshevDist(player.x, player.y, evt.x, evt.y);
+          const dist = manhattanDist(player.x, player.y, evt.x, evt.y);
           const distDesc = dist <= 2 ? '极近' : dist <= 4 ? '较近' : dist <= 6 ? '较远' : '极远';
           messages.push({ type: 'sound', text: `${dir}方向（${distDesc}）发出过惨叫` });
         } else {
@@ -901,6 +940,8 @@ function processPerceptionPhase(player) {
             seenGrassZones.add(zone);
             messages.push({ type: 'vision', text: `自身${zone}有过高草丛在动` });
           }
+          // 记录感知到的草丛格子（用于高亮标记）
+          perceivedGrassCells.push({ x: cell.x, y: cell.y });
         }
       }
     }
@@ -920,6 +961,9 @@ function processPerceptionPhase(player) {
       messages.push({ type: 'vision', text: `自身${zone}水坑中有一个身影` });
     }
   }
+
+  // 保存感知到的高草丛格子（供 renderBoard 高亮）
+  game.perceivedGrassCells = perceivedGrassCells;
 
   return messages;
 }
@@ -1056,7 +1100,7 @@ function doRun(direction) {
     SoundSystem.play('run');
   }
 
-  // 排队动画：起点/落点高亮、路径草丛扰动、水洼溅起
+  // 排队动画：起点/落点高亮、路径草丛扰动、洼地溅起
   // 仅在当前行动对观察者可见时显示（AI 行动隐藏）
   if (shouldShowActionInfo(player)) {
     queueCellAnim(startX, startY, 'move-from', 400);
@@ -1068,13 +1112,13 @@ function doRun(direction) {
     }
   }
 
-  // 踩中水洼提示（仅玩家自己可见）
+  // 踩中洼地提示（仅玩家自己可见）
   if (shouldShowActionInfo(player)) {
     if (isPuddle(midX, midY)) {
-      addActionLog(`踩中了水洼！`, 'system');
+      addActionLog(`踩中了洼地！`, 'system');
     }
     if (isPuddle(endX, endY) && !(midX === endX && midY === endY)) {
-      addActionLog(`踩中了水洼！`, 'system');
+      addActionLog(`踩中了洼地！`, 'system');
     }
   }
 
@@ -1146,7 +1190,7 @@ function doWalk(direction) {
     SoundSystem.play('walk');
   }
 
-  // 排队动画：起点 move-from、落点 move-to、路径草丛扰动、水洼溅起
+  // 排队动画：起点 move-from、落点 move-to、路径草丛扰动、洼地溅起
   // 仅在当前行动对观察者可见时显示（AI 行动隐藏）
   if (shouldShowActionInfo(player)) {
     queueCellAnim(oldX, oldY, 'move-from', 400);
@@ -1157,9 +1201,9 @@ function doWalk(direction) {
     }
   }
 
-  // 踩中水洼提示（仅玩家自己可见）
+  // 踩中洼地提示（仅玩家自己可见）
   if (shouldShowActionInfo(player) && isPuddle(result.newX, result.newY)) {
-    addActionLog(`踩中了水洼！`, 'system');
+    addActionLog(`踩中了洼地！`, 'system');
   }
 
   checkEncounter(player, oldX, oldY);
@@ -2326,7 +2370,7 @@ function renderBoard() {
         cell.classList.add('fire-warning');
       }
 
-      // 地形视觉：水坑、石柱可见；水洼不可见
+      // 地形视觉：水坑、石柱可见；洼地不可见
       const terrain = getTerrainAt(col, row);
       if (terrain === TERRAIN_TYPES.WATER) {
         cell.classList.add('water');
@@ -2374,6 +2418,41 @@ function renderBoard() {
         }
         if (isHighlightedAttack(col, row)) {
           cell.classList.add('highlight-attack');
+        }
+      }
+
+      // 视觉感知到的高草丛在动高亮（仅感知阶段，仅当前玩家可见）
+      if (game.phase === 'perception') {
+        const cp = getCurrentPlayer();
+        if (cp && (isLocalMode() ? !cp.isAI : cp.id === game.myPlayerIdx)) {
+          if (game.perceivedGrassCells && game.perceivedGrassCells.some(c => c.x === col && c.y === row)) {
+            cell.classList.add('grass-rustle');
+          }
+        }
+      }
+
+      // 玩家视觉/听觉指示器（仅对当前玩家显示）
+      if (game.phase !== 'gameOver' && game.phase !== 'setup') {
+        const cp = getCurrentPlayer();
+        if (cp && (isLocalMode() ? !cp.isAI : cp.id === game.myPlayerIdx)) {
+          // 视觉范围指示器（左前/正前/右前三列，深度2格）
+          if (game.showVisionIndicator) {
+            const visionZone = getVisionZoneName(cp, col, row);
+            if (visionZone) {
+              if (visionZone === '左前方') cell.classList.add('vision-left');
+              else if (visionZone === '正前方') cell.classList.add('vision-front');
+              else if (visionZone === '右前方') cell.classList.add('vision-right');
+            }
+          }
+          // 听力范围指示器（切比雪夫距离：walk 1格 / run 3格）
+          if (game.showHearingIndicator) {
+            const hearZone = getHearingZone(cp, col, row);
+            if (hearZone === 'walk') {
+              cell.classList.add('hearing-walk');
+            } else if (hearZone === 'run') {
+              cell.classList.add('hearing-run');
+            }
+          }
         }
       }
 
@@ -2958,6 +3037,18 @@ function updateTurnInfo() {
   };
   document.getElementById('turn-phase').textContent = phaseNames[game.phase] || '';
   document.getElementById('actions-left').textContent = `剩余行动: ${game.actionCount}`;
+
+  // 更新指示器状态标签
+  const visionTag = document.getElementById('vision-indicator-tag');
+  const hearingTag = document.getElementById('hearing-indicator-tag');
+  if (visionTag) {
+    if (game.showVisionIndicator) visionTag.classList.add('active');
+    else visionTag.classList.remove('active');
+  }
+  if (hearingTag) {
+    if (game.showHearingIndicator) hearingTag.classList.add('active');
+    else hearingTag.classList.remove('active');
+  }
 }
 
 function showTurnMask() {
@@ -3535,6 +3626,8 @@ function shouldShowActionInfo(player) {
  * - 联机模式：只有自己可见
  */
 function shouldShowPlayerPosition(player) {
+  // 站在洼地上的玩家对所有人可见（洼地会暴露位置）
+  if (isPuddle(player.x, player.y)) return true;
   if (isLocalMode()) return player.id === game.currentPlayerIdx && !player.isAI;
   return player.id === game.myPlayerIdx;
 }
@@ -3627,7 +3720,7 @@ function applyRemoteState(state) {
   if (state.fireCircle) {
     game.fireCircle = { ...state.fireCircle };
   }
-  // 同步地形（水坑/水洼/石柱）
+  // 同步地形（水坑/洼地/石柱）
   if (state.terrains) {
     game.terrains = { ...state.terrains };
   }
@@ -4328,6 +4421,24 @@ function handleKeyboard(e) {
       SoundSystem.play('click');
       renderBoard();
     }
+    return;
+  }
+
+  // V 键：切换视野指示器（感知/行动/结束阶段都可用）
+  if (key === 'v') {
+    game.showVisionIndicator = !game.showVisionIndicator;
+    SoundSystem.play('click');
+    renderBoard();
+    updateTurnInfo();
+    return;
+  }
+
+  // H 键：切换听力指示器（感知/行动/结束阶段都可用）
+  if (key === 'h') {
+    game.showHearingIndicator = !game.showHearingIndicator;
+    SoundSystem.play('click');
+    renderBoard();
+    updateTurnInfo();
     return;
   }
 

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>困兽之斗</title>
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=25">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -82,7 +82,7 @@
                   </select>
                 </div>
                 <div class="terrain-count-item">
-                  <span class="terrain-count-text">💦 水洼</span>
+                  <span class="terrain-count-text">💦 洼地</span>
                   <select id="puddle-count" class="ai-select terrain-count-select">
                     <option value="0">0</option>
                     <option value="5">5</option>
@@ -204,7 +204,7 @@
                 </select>
               </div>
               <div class="terrain-count-item">
-                <span class="terrain-count-text">💦 水洼</span>
+                <span class="terrain-count-text">💦 洼地</span>
                 <select id="lobby-puddle-count" class="ai-select terrain-count-select">
                   <option value="0">0</option>
                   <option value="5">5</option>
@@ -266,6 +266,10 @@
       </div>
       <div class="header-right">
         <div class="player-status" id="player-status-bar"></div>
+        <div id="indicator-status" class="indicator-status">
+          <span id="vision-indicator-tag" class="indicator-tag vision-tag" title="V键切换">👁️ 视野</span>
+          <span id="hearing-indicator-tag" class="indicator-tag hearing-tag" title="H键切换">👂 听力</span>
+        </div>
         <button id="rules-btn-game" class="icon-btn" title="游戏规则">📖</button>
         <button id="sound-toggle-btn" class="icon-btn" title="音效开关">🔊</button>
       </div>
@@ -298,6 +302,8 @@
             <div class="shortcut-item"><kbd>回车</kbd> 确认</div>
             <div class="shortcut-item"><kbd>右键</kbd> 标记/取消</div>
             <div class="shortcut-item"><kbd>M</kbd> 清除所有标记</div>
+            <div class="shortcut-item"><kbd>V</kbd> 视野指示</div>
+            <div class="shortcut-item"><kbd>H</kbd> 听力指示</div>
           </div>
         </div>
       </div>
@@ -363,7 +369,7 @@
         <h4>⑧ 特殊地形</h4>
         <p>每局开局随机生成以下地形（数量由房主配置，玩家初始位置不会生成在水坑/石柱上）：</p>
         <p><b>💧 水坑</b>（默认 10 处，可见）：移动路径经过水坑时，声音传播范围 +1 格；<b>站在水坑上的玩家会被视野内的其他玩家直接看到</b>（提示"自身XX水坑中有一个身影"）</p>
-        <p><b>💦 水洼</b>（默认 10 处，隐藏）：踩中时提示"踩中了水洼"，玩家事先不知位置</p>
+        <p><b>💦 洼地</b>（默认 10 处，隐藏）：踩中时提示"踩中了洼地"，玩家事先不知位置</p>
         <p><b>⬛ 石柱</b>（默认 5 处，可见）：无法穿过，移动路径遇石柱会被阻挡</p>
 
         <h4>⑨ 火圈机制（可选）</h4>
@@ -378,7 +384,7 @@
   </div>
 </div>
 
-<script src="net.js?v=21"></script>
-<script src="game.js?v=21"></script>
+<script src="net.js?v=25"></script>
+<script src="game.js?v=25"></script>
 </body>
 </html>
