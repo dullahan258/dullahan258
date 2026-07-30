@@ -2988,7 +2988,16 @@ function updateStatusBar() {
   const bar = document.getElementById('player-status-bar');
   bar.innerHTML = '';
 
+  // 不显示全部玩家存活状态（避免暴露剩余玩家数量）
+  // 仅显示自己 + 当前回合玩家
+  const cp = getCurrentPlayer();
+  const observerId = isLocalMode() ? (cp && !cp.isAI ? cp.id : null) : game.myPlayerIdx;
+  const showIds = new Set();
+  if (observerId !== null && observerId !== undefined) showIds.add(observerId);
+  if (cp) showIds.add(cp.id);
+
   for (const p of game.players) {
+    if (!showIds.has(p.id)) continue;
     const chip = document.createElement('div');
     const isJustDied = !p.alive && p._deathTime && (Date.now() - p._deathTime < 600);
     chip.className = `player-chip ${p.alive ? '' : 'dead'} ${isJustDied ? 'just-died' : ''}`;
