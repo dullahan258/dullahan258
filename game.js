@@ -1132,6 +1132,9 @@ function doRun(direction) {
     killPlayer(player);
   }
 
+  // 移动后朝向与最后一步移动方向一致
+  player.facing = direction;
+
   return true;
 }
 
@@ -1205,6 +1208,9 @@ function doWalk(direction) {
   if (shouldShowActionInfo(player) && isPuddle(result.newX, result.newY)) {
     addActionLog(`踩中了洼地！`, 'system');
   }
+
+  // 移动后朝向与移动方向一致
+  player.facing = direction;
 
   checkEncounter(player, oldX, oldY);
   return true;
