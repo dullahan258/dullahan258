@@ -382,6 +382,8 @@ let game = {
   runFirstStepDir: null,
   // 动画队列：renderBoard 后刷新，存放 {type, x, y, className, duration, spawn}
   pendingAnimations: [],
+  // 行动历史记录（用于游戏结束复盘）
+  actionHistory: [],
 };
 
 /* ===== 动画辅助系统 ===== */
@@ -508,11 +510,22 @@ function forceMoveFromFire() {
         queueCellAnim(target.x, target.y, 'move-to', 400);
         addActionLog(`${player.name} 被火圈逼退到 ${cellToStr(target.x, target.y)}`, 'system');
       }
+      recordAction(player, 'fireMove', {
+        description: `被火圈逼退到 ${cellToStr(target.x, target.y)}`,
+        from: { x: oldX, y: oldY },
+        to: { x: target.x, y: target.y },
+        result: '逼退',
+      });
     } else {
       if (shouldShowActionInfo(player)) {
         queueDeathEffects(player.x, player.y);
         addActionLog(`${player.name} 被火圈吞噬！`, 'system');
       }
+      recordAction(player, 'fireDeath', {
+        description: `被火圈吞噬`,
+        from: { x: player.x, y: player.y },
+        result: '淘汰',
+      });
       killPlayer(player);
     }
   });
@@ -588,6 +601,7 @@ function initGame(playerNames, aiCount, characterIds, fireCircleConfig, enableSp
   game.actionCount = 0;
   game.winner = null;
   game.pendingAnimations = [];
+  game.actionHistory = [];
 
   // 火圈配置
   if (fireCircleConfig) {
@@ -1023,6 +1037,15 @@ function doRun(direction) {
 
   recordSoundEvent(startX, startY, runSoundRadius, 'run', player.id);
   recordGrassEvent(grassCells, player.id);
+  recordAction(player, 'run', {
+    description: firstDir === direction
+      ? `朝${DIRS[firstDir].name}方向奔跑`
+      : `朝${DIRS[firstDir].name}→${DIRS[direction].name}方向奔跑`,
+    from: { x: startX, y: startY },
+    to: { x: player.x, y: player.y },
+    direction: `${firstDir}${firstDir !== direction ? '→' + direction : ''}`,
+    result: hitPlayer ? '撞上玩家被淘汰' : '成功',
+  });
   if (shouldShowActionInfo(player)) {
     const firstDirName = DIRS[firstDir].name;
     const secondDirName = DIRS[direction].name;
@@ -1111,6 +1134,13 @@ function doWalk(direction) {
 
   recordSoundEvent(result.oldX, result.oldY, walkSoundRadius, 'walk', player.id);
   recordGrassEvent(result.grassCells, player.id);
+  recordAction(player, 'walk', {
+    description: `朝${DIRS[direction].name}方向静步`,
+    from: { x: result.oldX, y: result.oldY },
+    to: { x: result.newX, y: result.newY },
+    direction: direction,
+    result: '成功',
+  });
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name} 朝${DIRS[direction].name}方向静步`, 'action');
     SoundSystem.play('walk');
@@ -1172,6 +1202,13 @@ function doAttack(direction) {
   }
 
   const targets = game.players.filter(p => p.alive && !p.fakeDeath && p.id !== player.id && p.x === tx && p.y === ty);
+  recordAction(player, 'attack', {
+    description: `朝${DIRS[direction].name}方向攻击`,
+    from: { x: player.x, y: player.y },
+    direction: direction,
+    target: targets.length > 0 ? targets.map(t => t.name).join(', ') : null,
+    result: targets.length > 0 ? '命中' : '打空',
+  });
   if (targets.length > 0) {
     const visible = shouldShowActionInfo(player) || targets.some(t => shouldShowActionInfo(t));
     if (visible) {
@@ -1249,6 +1286,14 @@ function doShoot(direction) {
   // 枪声：全地图传播（半径20，确保覆盖10x10地图）
   recordSoundEvent(player.x, player.y, 20, 'gunshot', player.id);
 
+  recordAction(player, 'shoot', {
+    description: `朝${DIRS[direction].name}方向开枪`,
+    from: { x: player.x, y: player.y },
+    direction: direction,
+    target: targetPlayer ? targetPlayer.name : null,
+    result: targetPlayer ? '命中' : '打空',
+  });
+
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name}（吴明卒）朝${DIRS[direction].name}方向开枪！`, 'action');
     SoundSystem.play('attack');
@@ -1323,6 +1368,13 @@ function doMimic(soundType, direction) {
     addActionLog(`${player.name}（声带）模仿了${soundName}的声音`, 'action');
   }
 
+  recordAction(player, 'mimic', {
+    description: `模仿了${soundName}的声音`,
+    from: { x: player.x, y: player.y },
+    direction: direction,
+    result: '成功',
+  });
+
   // 不消耗行动点，直接刷新
   game.selectedAction = null;
   updateActionBar();
@@ -1388,6 +1440,13 @@ function checkEncounter(movingPlayer, oldX, oldY) {
     SoundSystem.play('encounter');
   }
 
+  recordAction(movingPlayer, 'encounter', {
+    description: `与${stationary.name}相遇：${reason}`,
+    from: { x: movingPlayer.x, y: movingPlayer.y },
+    target: stationary.name,
+    result: movingDead ? '被淘汰' : '偷袭成功',
+  });
+
   if (movingDead) {
     if (shouldShowActionInfo(movingPlayer) || shouldShowActionInfo(stationary)) {
       queueDeathEffects(movingPlayer.x, movingPlayer.y);
@@ -1434,6 +1493,11 @@ function killPlayer(player) {
   player._deathTime = Date.now();
   recordScreamEvent(player.x, player.y, player.id);
   SoundSystem.play('scream');
+  recordAction(player, 'death', {
+    description: `${player.name} 被淘汰`,
+    from: { x: player.x, y: player.y },
+    result: '淘汰',
+  });
 
   // 死亡爆裂 + 惨叫标记动画由调用方根据可见性决定是否排队
   const aliveCount = game.players.filter(p => p.alive).length;
@@ -2019,6 +2083,11 @@ function endTurn(facingDirection) {
   if (shouldShowActionInfo(player)) {
     addActionLog(`${player.name} 朝向${DIRS[facingDirection].name}结束回合`, 'action');
   }
+  recordAction(player, 'turn', {
+    description: `转向${DIRS[facingDirection].name}，结束回合`,
+    from: { x: player.x, y: player.y },
+    direction: facingDirection,
+  });
 
   const alivePlayers = game.players.filter(p => p.alive);
   if (alivePlayers.length <= 1) {
@@ -2150,6 +2219,25 @@ function addActionLog(text, type = 'action') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+// 记录行动到历史（用于游戏结束复盘）
+function recordAction(player, action, details = {}) {
+  const entry = {
+    round: game.roundCount,
+    playerId: player.id,
+    playerName: player.name,
+    playerColor: player.color,
+    characterIcon: player.characterIcon || '',
+    action: action,
+    description: details.description || '',
+    from: details.from || null,
+    to: details.to || null,
+    direction: details.direction || null,
+    target: details.target || null,
+    result: details.result || null,
+  };
+  game.actionHistory.push(entry);
+}
+
 function showPerceptionMessages(messages) {
   const logEl = document.getElementById('perception-log');
   logEl.innerHTML = '';
@@ -2251,7 +2339,7 @@ function renderBoard() {
       }
 
       const player = game.players.find(p => p.alive && p.x === col && p.y === row);
-      if (player && game.phase !== 'perception') {
+      if (player) {
         if (shouldShowPlayerPosition(player)) {
           cell.classList.add('player-cell');
           const marker = document.createElement('div');
@@ -2998,6 +3086,68 @@ function showEndScreen() {
   const charSuffix = winner?.characterName ? `（${winner.characterName}）` : '';
   document.getElementById('winner-text').innerHTML =
     `<span class="winner-name">${iconPrefix}${winner?.name || '无'}${charSuffix}</span> 获胜！`;
+
+  // 渲染复盘面板
+  renderReplay();
+}
+
+// 渲染复盘面板：按回合分组展示所有玩家的行动过程
+function renderReplay() {
+  const container = document.getElementById('replay-content');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const history = game.actionHistory || [];
+  if (history.length === 0) {
+    container.innerHTML = '<p class="replay-empty">无行动记录</p>';
+    return;
+  }
+
+  // 按回合分组
+  const rounds = {};
+  history.forEach(entry => {
+    const r = entry.round;
+    if (!rounds[r]) rounds[r] = [];
+    rounds[r].push(entry);
+  });
+
+  const actionIcons = {
+    run: '🏃', walk: '🚶', attack: '⚔️', shoot: '🔫',
+    mimic: '🎭', encounter: '💥', turn: '🧭',
+    death: '💀', fireMove: '🔥', fireDeath: '🔥',
+  };
+
+  const sortedRounds = Object.keys(rounds).sort((a, b) => parseInt(a) - parseInt(b));
+  sortedRounds.forEach(roundNum => {
+    const roundEl = document.createElement('div');
+    roundEl.className = 'replay-round';
+
+    const header = document.createElement('div');
+    header.className = 'replay-round-header';
+    header.textContent = `第 ${parseInt(roundNum) + 1} 回合`;
+    roundEl.appendChild(header);
+
+    rounds[roundNum].forEach(entry => {
+      const item = document.createElement('div');
+      item.className = 'replay-item';
+      const icon = actionIcons[entry.action] || '•';
+      const iconPrefix = entry.characterIcon ? `${entry.characterIcon} ` : '';
+      const posStr = entry.from ? `(${cellToStr(entry.from.x, entry.from.y)})` : '';
+      const dirStr = entry.direction ? DIRS[entry.direction]?.name || entry.direction : '';
+      const targetStr = entry.target ? ` → ${entry.target}` : '';
+      const resultStr = entry.result ? ` [${entry.result}]` : '';
+
+      item.innerHTML = `<span class="replay-icon">${icon}</span>` +
+        `<span class="replay-player" style="color:${entry.playerColor}">${iconPrefix}${entry.playerName}</span>` +
+        `<span class="replay-desc">${entry.description}${targetStr}${resultStr}</span>` +
+        (posStr ? `<span class="replay-pos">${posStr}</span>` : '');
+      roundEl.appendChild(item);
+    });
+
+    container.appendChild(roundEl);
+  });
+
+  container.scrollTop = 0;
 }
 
 function setupPlayerCountSelector() {
@@ -3426,6 +3576,7 @@ function getPublicState() {
     winner: game.winner ? game.winner.id : null,
     fireCircle: { ...game.fireCircle },
     terrains: { ...game.terrains },
+    actionHistory: game.actionHistory || [],
   };
 }
 
@@ -3479,6 +3630,10 @@ function applyRemoteState(state) {
   // 同步地形（水坑/水洼/石柱）
   if (state.terrains) {
     game.terrains = { ...state.terrains };
+  }
+  // 同步行动历史（用于复盘）
+  if (state.actionHistory) {
+    game.actionHistory = state.actionHistory;
   }
   // myPlayerIdx 不从 state 读取，客机保留自己的身份
   game.selectedAction = null;
@@ -4030,6 +4185,21 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('start-btn').addEventListener('click', startGame);
   document.getElementById('turn-mask-btn').addEventListener('click', onTurnMaskConfirm);
   document.getElementById('restart-btn').addEventListener('click', restartGame);
+
+  // 复盘面板切换
+  const replayToggleBtn = document.getElementById('replay-toggle-btn');
+  if (replayToggleBtn) {
+    replayToggleBtn.addEventListener('click', () => {
+      const panel = document.getElementById('replay-panel');
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        replayToggleBtn.textContent = '📋 收起复盘';
+      } else {
+        panel.classList.add('hidden');
+        replayToggleBtn.textContent = '📋 查看复盘';
+      }
+    });
+  }
 
   // 模式切换
   document.querySelectorAll('.mode-btn').forEach(btn => {

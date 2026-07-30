@@ -1374,6 +1374,100 @@ body {
   font-weight: bold;
 }
 
+/* 复盘面板 */
+.replay-panel {
+  margin-top: 20px;
+  text-align: left;
+  width: 100%;
+  max-width: 520px;
+}
+
+.replay-panel h3 {
+  color: #00d9ff;
+  font-size: 18px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.replay-content {
+  max-height: 400px;
+  overflow-y: auto;
+  background: rgba(15, 22, 38, 0.6);
+  border-radius: 10px;
+  padding: 12px 16px;
+  border: 1px solid rgba(0, 217, 255, 0.15);
+}
+
+.replay-content::-webkit-scrollbar {
+  width: 6px;
+}
+.replay-content::-webkit-scrollbar-track {
+  background: rgba(15, 22, 38, 0.4);
+  border-radius: 3px;
+}
+.replay-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 217, 255, 0.3);
+  border-radius: 3px;
+}
+
+.replay-empty {
+  color: #5a6a8a;
+  text-align: center;
+  padding: 20px;
+  font-size: 14px;
+}
+
+.replay-round {
+  margin-bottom: 16px;
+}
+
+.replay-round:last-child {
+  margin-bottom: 0;
+}
+
+.replay-round-header {
+  color: #ffc107;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 193, 7, 0.2);
+  margin-bottom: 6px;
+}
+
+.replay-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.replay-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.replay-player {
+  font-weight: bold;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.replay-desc {
+  color: #c0c8e0;
+  flex: 1;
+}
+
+.replay-pos {
+  color: #5a6a8a;
+  font-size: 12px;
+  flex-shrink: 0;
+  font-family: 'Consolas', monospace;
+}
+
 @media (max-width: 900px) {
   .game-main {
     flex-direction: column;

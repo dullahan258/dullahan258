@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>困兽之斗</title>
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -313,6 +313,11 @@
       <h1>游戏结束</h1>
       <p id="winner-text">玩家一 获胜！</p>
       <button id="restart-btn" class="primary-btn">再来一局</button>
+      <button id="replay-toggle-btn" class="link-btn" style="margin-top:12px;">📋 查看复盘</button>
+      <div id="replay-panel" class="replay-panel hidden">
+        <h3>行动复盘</h3>
+        <div id="replay-content" class="replay-content"></div>
+      </div>
     </div>
   </div>
 
@@ -373,7 +378,7 @@
   </div>
 </div>
 
-<script src="net.js?v=20"></script>
-<script src="game.js?v=20"></script>
+<script src="net.js?v=21"></script>
+<script src="game.js?v=21"></script>
 </body>
 </html>
