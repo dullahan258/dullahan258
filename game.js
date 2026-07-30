@@ -50,11 +50,11 @@ const CHARACTERS = [
     name: '沙寇',
     icon: '😈',
     title: '疯子',
-    desc: '无法静步；听到惨叫时精确得知位置；听到第一声惨叫后奔跑距离+2格且免疫遭遇击杀',
+    desc: '无法静步；听到惨叫时精确得知位置；听到第一声惨叫后奔跑距离+2格，且每回合获得1次免费攻击',
     background: '他总是能够吸引别人的目光，尤其是在他犯下多起案件还诡异地笑着的时候。',
     skillName: '欢乐！',
-    skillDesc: '无法"静步"。听到惨叫时，能精确知道惨叫发出的位置（系统提示坐标）。听到第一声惨叫时越发兴奋：奔跑距离+2格，且其他玩家无法再通过遭遇击杀他。',
-    skills: { noWalk: true, screamLocate: true, thrillSeeker: true }
+    skillDesc: '无法"静步"。听到惨叫时，能精确知道惨叫发出的位置（系统提示坐标）。听到第一声惨叫时越发兴奋：奔跑距离+2格，且每回合可额外进行1次免费攻击（不消耗行动次数）。',
+    skills: { noWalk: true, screamLocate: true, thrillSeeker: true, freeAttackAfterScream: true }
   },
   {
     id: 'mimic',
@@ -1232,6 +1232,15 @@ function doAttack(direction) {
     return false;
   }
 
+  // 沙寇技能：兴奋后每回合1次免费攻击（不消耗行动点）
+  if (skills.freeAttackAfterScream && player.screamHeard && player.freeHitUsed < 1) {
+    player.freeHitUsed++;
+    player._freeHitThisAction = true;
+    if (shouldShowActionInfo(player)) {
+      addActionLog(`${player.name}（沙寇）兴奋触发免费攻击！`, 'system');
+    }
+  }
+
   // 攻击路径上的格子都会晃动
   const grassCells = [];
   for (let step = 1; step <= attackRange; step++) {
@@ -1459,16 +1468,6 @@ function checkEncounter(movingPlayer, oldX, oldY) {
   // 守卫技能：相遇时必胜（stationary是守卫时，移动者必死）
   const stationarySkills = getCharacterSkills(stationary);
   const movingSkills = getCharacterSkills(movingPlayer);
-
-  // 沙寇技能：听到惨叫后免疫遭遇击杀
-  if (movingSkills.thrillSeeker && movingPlayer.screamHeard) {
-    // 沙寇免疫，且不击杀对方（双方都活）
-    if (shouldShowActionInfo(movingPlayer) || shouldShowActionInfo(stationary)) {
-      addActionLog(`相遇！${movingPlayer.name}（沙寇）因兴奋而免疫遭遇击杀，双方都活着`, 'system');
-      SoundSystem.play('encounter');
-    }
-    return; // 双方都不死
-  }
 
   // 乔的警惕性：苏醒后任何经过他所在格子的行动都会被"提防"
   if (stationarySkills.survivalInstinct && stationary.vigilance) {
@@ -2016,7 +2015,10 @@ function executeAIAction() {
   const aiPlayer = getCurrentPlayer();
   if (!aiPlayer.isAI || !aiPlayer.alive) return;
   if (game.phase !== 'action') return;
-  if (game.actionCount <= 0) {
+  // 沙寇：兴奋后即使无行动点，仍可使用免费攻击
+  const aiSkills = getCharacterSkills(aiPlayer);
+  const hasFreeAttack = aiSkills.freeAttackAfterScream && aiPlayer.screamHeard && aiPlayer.freeHitUsed < 1;
+  if (game.actionCount <= 0 && !hasFreeAttack) {
     enterEndingPhase();
     if (isHostMode()) broadcastGameState();
     setTimeout(executeAIEnding, 600);
@@ -2051,7 +2053,12 @@ function executeAIAction() {
   }
 
   if (success) {
-    game.actionCount--;
+    // 沙寇/狂战技能：免费攻击不消耗行动点
+    if (aiPlayer._freeHitThisAction) {
+      aiPlayer._freeHitThisAction = false;
+    } else {
+      game.actionCount--;
+    }
     updateAll();
     if (isHostMode()) broadcastGameState();
 
@@ -2061,11 +2068,18 @@ function executeAIAction() {
     }
 
     if (game.actionCount <= 0) {
-      setTimeout(() => {
-        enterEndingPhase();
-        if (isHostMode()) broadcastGameState();
-        setTimeout(executeAIEnding, 600);
-      }, 500);
+      // 沙寇：若无行动点但仍有免费攻击，继续行动
+      const stillHasFreeAttack = aiSkills.freeAttackAfterScream && aiPlayer.screamHeard && aiPlayer.freeHitUsed < 1;
+      if (stillHasFreeAttack) {
+        game.selectedAction = null;
+        setTimeout(executeAIAction, 800);
+      } else {
+        setTimeout(() => {
+          enterEndingPhase();
+          if (isHostMode()) broadcastGameState();
+          setTimeout(executeAIEnding, 600);
+        }, 500);
+      }
     } else {
       game.selectedAction = null;
       setTimeout(executeAIAction, 800);
@@ -2092,7 +2106,8 @@ function showWallHit() {
 
 function useAction() {
   const player = getCurrentPlayer();
-  // 狂战技能：命中时不消耗行动点
+  const skills = getCharacterSkills(player);
+  // 沙寇/狂战技能：免费攻击不消耗行动点
   if (player._freeHitThisAction) {
     player._freeHitThisAction = false;
     if (shouldShowActionInfo(player)) {
@@ -2107,12 +2122,18 @@ function useAction() {
 
   if (isHostMode()) broadcastGameState();
 
-  if (game.actionCount <= 0) {
+  // 沙寇：若无行动点但仍有免费攻击，不进入结束阶段
+  const hasFreeAttack = skills.freeAttackAfterScream && player.screamHeard && player.freeHitUsed < 1;
+  if (game.actionCount <= 0 && !hasFreeAttack) {
     setTimeout(() => {
       enterEndingPhase();
       if (isHostMode()) broadcastGameState();
     }, 500);
+  } else if (game.actionCount > 0) {
+    game.selectedAction = null;
+    updateActionBar();
   } else {
+    // 有免费攻击但无行动点：重置选择，让玩家可以继续攻击
     game.selectedAction = null;
     updateActionBar();
   }
@@ -2866,8 +2887,11 @@ function updateActionBar() {
     const attackBtn = document.createElement('button');
     attackBtn.className = `action-btn ${game.selectedAction?.type === 'attack' ? 'primary' : ''}`;
     const attackRange = skills.attackRange || 1;
-    attackBtn.innerHTML = `⚔️ 攻击<br><small>${attackRange > 1 ? `距离${attackRange}格` : '相邻1格'}</small>`;
-    attackBtn.disabled = game.actionCount <= 0;
+    // 沙寇：兴奋后每回合1次免费攻击，即使无行动点也可用
+    const hasFreeAttack = skills.freeAttackAfterScream && player.screamHeard && player.freeHitUsed < 1;
+    const attackLabel = hasFreeAttack ? `（免费${1 - player.freeHitUsed}次）` : '';
+    attackBtn.innerHTML = `⚔️ 攻击<br><small>${attackRange > 1 ? `距离${attackRange}格` : '相邻1格'}${attackLabel}</small>`;
+    attackBtn.disabled = game.actionCount <= 0 && !hasFreeAttack;
     attackBtn.addEventListener('click', () => selectAction('attack'));
     bar.appendChild(attackBtn);
 
@@ -2904,7 +2928,11 @@ function updateActionBar() {
 }
 
 function selectAction(type) {
-  if (game.actionCount <= 0) return;
+  const player = getCurrentPlayer();
+  const skills = getCharacterSkills(player);
+  // 沙寇：兴奋后免费攻击可在无行动点时选择攻击
+  const hasFreeAttack = type === 'attack' && skills.freeAttackAfterScream && player.screamHeard && player.freeHitUsed < 1;
+  if (game.actionCount <= 0 && !hasFreeAttack) return;
   if (!canActLocal()) return;
   if (game.selectedAction?.type === type) {
     game.selectedAction = null;
@@ -3036,11 +3064,12 @@ function updateStatusBar() {
       }
     }
 
-    // 沙寇：显示兴奋状态
+    // 沙寇：显示兴奋状态及免费攻击次数
     if (p.alive && p.characterId === 'maniac' && p.screamHeard) {
       const status = document.createElement('span');
+      const freeAtkLeft = 1 - (p.freeHitUsed || 0);
       status.style.cssText = 'font-size:11px; color:#ff5722; margin-left:6px;';
-      status.textContent = '兴奋';
+      status.textContent = freeAtkLeft > 0 ? `兴奋(免费${freeAtkLeft})` : '兴奋';
       chip.appendChild(status);
     }
 
