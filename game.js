@@ -2384,7 +2384,15 @@ function renderBoard() {
 
       const player = game.players.find(p => p.alive && p.x === col && p.y === row);
       if (player) {
-        if (shouldShowPlayerPosition(player)) {
+        // 判断是否可见：自身可见，或站在水坑中且在观察者视野内
+        let visible = shouldShowPlayerPosition(player);
+        if (!visible && isWater(player.x, player.y)) {
+          const observer = getCurrentPlayer();
+          if (observer && observer.id !== player.id && observer.alive && isInVision(observer, player.x, player.y)) {
+            visible = true;
+          }
+        }
+        if (visible) {
           cell.classList.add('player-cell');
           const marker = document.createElement('div');
           marker.className = `player-marker facing-${player.facing.toLowerCase()}`;
@@ -2435,18 +2443,24 @@ function renderBoard() {
       if (game.phase !== 'gameOver' && game.phase !== 'setup') {
         const cp = getCurrentPlayer();
         if (cp && (isLocalMode() ? !cp.isAI : cp.id === game.myPlayerIdx)) {
+          // 奔跑第一步后用中间位置预览视野/听力范围
+          let indicatorPlayer = cp;
+          if (game.selectedAction?.type === 'run' && game.runFirstStepDir !== null) {
+            const d = DIRS[game.runFirstStepDir];
+            indicatorPlayer = { ...cp, x: cp.x + d.dx, y: cp.y + d.dy };
+          }
           // 视觉范围指示器（左前/正前/右前三列，深度2格）
           if (game.showVisionIndicator) {
-            const visionZone = getVisionZoneName(cp, col, row);
+            const visionZone = getVisionZoneName(indicatorPlayer, col, row);
             if (visionZone) {
               if (visionZone === '左前方') cell.classList.add('vision-left');
               else if (visionZone === '正前方') cell.classList.add('vision-front');
               else if (visionZone === '右前方') cell.classList.add('vision-right');
             }
           }
-          // 听力范围指示器（切比雪夫距离：walk 1格 / run 3格）
+          // 听力范围指示器（曼哈顿距离：walk 1格 / run 3格）
           if (game.showHearingIndicator) {
-            const hearZone = getHearingZone(cp, col, row);
+            const hearZone = getHearingZone(indicatorPlayer, col, row);
             if (hearZone === 'walk') {
               cell.classList.add('hearing-walk');
             } else if (hearZone === 'run') {
@@ -3626,8 +3640,6 @@ function shouldShowActionInfo(player) {
  * - 联机模式：只有自己可见
  */
 function shouldShowPlayerPosition(player) {
-  // 站在洼地上的玩家对所有人可见（洼地会暴露位置）
-  if (isPuddle(player.x, player.y)) return true;
   if (isLocalMode()) return player.id === game.currentPlayerIdx && !player.isAI;
   return player.id === game.myPlayerIdx;
 }
